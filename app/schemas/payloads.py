@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 from app.models.schema import UserRole
+from app.models.schema import PlanCategory
 
 # ==========================================
 # --- TOKENS ---
@@ -65,11 +66,50 @@ class StaffCreate(BaseModel):
     last_name: str
     password: str
     role: UserRole # Aquí el frontend envía "COACH" o "STAFF"
-    
+
 class PasswordChangePublic(BaseModel):
     email: EmailStr
     temporary_password: str
     new_password: str
+
+# --- Esquemas de Planes ---
+class PlanCreate(BaseModel):
+    name: str
+    category: PlanCategory = PlanCategory.RECURRING
+    credits_per_week: Optional[int] = None
+    validity_days: Optional[int] = None
+    is_unlimited: bool = False
+
+class PlanUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[PlanCategory] = None
+    credits_per_week: Optional[int] = None
+    validity_days: Optional[int] = None
+    is_unlimited: Optional[bool] = None
+
+class PlanResponse(PlanCreate):
+    id: UUID
+    tenant_box_id: UUID
+
+    class Config:
+        from_attributes = True
+
+# --- Esquemas de Suscripciones ---
+class UserSubscriptionCreate(BaseModel):
+    user_id: UUID
+    plan_id: UUID
+    renews_at: datetime
+
+class UserSubscriptionResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    plan_id: UUID
+    current_weekly_credits: int
+    status: str
+    renews_at: datetime
+
+    class Config:
+        from_attributes = True
 
     class Config:
         from_attributes = True # Permite a Pydantic leer modelos de SQLAlchemy
