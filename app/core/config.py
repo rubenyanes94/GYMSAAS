@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8 # 8 días de sesión
 
+    RESEND_API_KEY: str
+    RESEND_FROM_EMAIL: str
+
     class Config:
         case_sensitive = True
         env_file = ".env"

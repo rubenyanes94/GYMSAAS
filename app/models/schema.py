@@ -64,13 +64,14 @@ class Modality(enum.Enum):
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    tenant_box_id = Column(UUID(as_uuid=True), ForeignKey("tenant_boxes.id"), nullable=False, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     profile_picture_url = Column(String, nullable=True) 
     roles = Column(ARRAY(Enum(UserRole)), default=[UserRole.ATHLETE])
+    requires_password_change = Column(Boolean, default=False)
     athlete_type = Column(Enum(AthleteTier), default=AthleteTier.REGULAR)
     biometric_reference_id = Column(String(255), unique=True, nullable=True)
     booking_suspended_until = Column(DateTime(timezone=True), nullable=True)
@@ -239,6 +240,7 @@ class FeedLike(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     result_id = Column(UUID(as_uuid=True), ForeignKey("athlete_block_results.id"))
+    result = relationship("AthleteBlockResult", back_populates="likes")
 
 class FeedComment(Base):
     __tablename__ = "feed_comments"
@@ -249,3 +251,15 @@ class FeedComment(Base):
     created_at = Column(DateTime(timezone=True), default=func.now())
     
     result = relationship("AthleteBlockResult", back_populates="comments")
+
+class TenantBox(Base):
+    __tablename__ = "tenant_boxes"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(150), nullable=False, unique=True)
+    slug = Column(String(50), unique=True, nullable=False) # Para subdominios o rutas (ej: /api/v1/crossfit-caracas)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    
+    # Relaciones opcionales para navegar los datos del box
+    # users = relationship("User", back_populates="tenant")
