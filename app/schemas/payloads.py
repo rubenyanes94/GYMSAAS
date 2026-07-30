@@ -98,7 +98,6 @@ class PlanResponse(PlanCreate):
 class UserSubscriptionCreate(BaseModel):
     user_id: UUID
     plan_id: UUID
-    renews_at: datetime
 
 class UserSubscriptionResponse(BaseModel):
     id: UUID
@@ -108,8 +107,12 @@ class UserSubscriptionResponse(BaseModel):
     status: str
     renews_at: datetime
 
-    class Config:
-        from_attributes = True
+class ProcessPaymentSubscription(BaseModel):
+    user_id: UUID
+    plan_id: UUID
+    amount_paid: float
+    payment_method: str  # Ej: "Zelle", "Pago Movil", "Efectivo", "Stripe"
+    notes: Optional[str] = None
 
     class Config:
         from_attributes = True # Permite a Pydantic leer modelos de SQLAlchemy
