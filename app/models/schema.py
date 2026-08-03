@@ -64,7 +64,6 @@ class Modality(enum.Enum):
 class User(Base):
     __tablename__ = "users"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), ForeignKey("tenant_boxes.id"), nullable=False, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
@@ -81,7 +80,6 @@ class User(Base):
 class TenantPaymentSettings(Base):
     __tablename__ = "tenant_payment_settings"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False)
     provider = Column(Enum(PaymentProvider), nullable=False)
     public_key = Column(String(255))
     secret_key = Column(String(255)) 
@@ -90,7 +88,6 @@ class TenantPaymentSettings(Base):
 class Plan(Base):
     __tablename__ = "plans"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False)
     name = Column(String(100), nullable=False)
     category = Column(Enum(PlanCategory), default=PlanCategory.RECURRING)
     credits_per_week = Column(Integer, nullable=True)
@@ -119,13 +116,11 @@ class DropInPass(Base):
 class AccessDevice(Base):
     __tablename__ = "access_devices"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False)
     device_token = Column(String(255), unique=True, nullable=False)
 
 class Resource(Base):
     __tablename__ = "resources"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False)
     name = Column(String(100), nullable=False)
     resource_type = Column(Enum(ResourceType), nullable=False)
 
@@ -143,7 +138,6 @@ class ResourceBooking(Base):
 class ClassSession(Base):
     __tablename__ = "class_sessions"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False)
     track_category = Column(Enum(TrackCategory), default=TrackCategory.CROSSFIT)
     coach_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     session_date = Column(Date, nullable=False)
@@ -169,7 +163,6 @@ class Exercise(Base):
 class DailyProgram(Base):
     __tablename__ = "daily_programs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_box_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     author_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     track = Column(Enum(TrackCategory), nullable=False)
     program_date = Column(Date, nullable=False, index=True)

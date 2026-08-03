@@ -8,7 +8,7 @@ import uuid
 from app.models.schema import TenantBox, User, UserRole
 from app.core.security import get_password_hash  # Tu función existente para hashear contraseñas
 # Importa también tu esquema Pydantic de entrada
-from app.api.v1 import auth,tenants
+from app.api.v1 import auth
 from app.api.v1.finances import router as finances_router
 
 app = FastAPI(
@@ -27,7 +27,6 @@ app.add_middleware(
 
 # Registrar rutas
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Autenticación"])
-app.include_router(tenants.router, prefix=f"{settings.API_V1_STR}") # Ya trae su propio prefijo /tenants
 app.include_router(finances_router, prefix="/api/v1")
 
 @app.get("/health", tags=["System"])

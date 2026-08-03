@@ -4,6 +4,7 @@ from uuid import UUID
 from datetime import datetime
 from app.models.schema import UserRole
 from app.models.schema import PlanCategory
+from typing import Optional
 
 # ==========================================
 # --- TOKENS ---
@@ -15,24 +16,6 @@ class Token(BaseModel):
 class TokenPayload(BaseModel):
     sub: Optional[str] = None
 
-# ==========================================
-# --- TENANTS (BOXES / GYMS) ---
-# ==========================================
-class TenantRegisterRequest(BaseModel):
-    gym_name: str
-    gym_slug: str
-    admin_first_name: str
-    admin_last_name: str
-    admin_email: EmailStr
-    admin_password: str
-
-class TenantPublicInfo(BaseModel):
-    id: UUID
-    name: str
-    slug: str
-
-    class Config:
-        from_attributes = True
 
 # ==========================================
 # --- USUARIOS ---
@@ -44,11 +27,9 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
-    tenant_box_id: UUID
 
 class UserResponse(UserBase):
     id: UUID
-    tenant_box_id: UUID
     roles: list[str]
     is_active: bool = True
     created_at: Optional[datetime] = None
@@ -89,7 +70,6 @@ class PlanUpdate(BaseModel):
 
 class PlanResponse(PlanCreate):
     id: UUID
-    tenant_box_id: UUID
 
     class Config:
         from_attributes = True
@@ -113,6 +93,32 @@ class ProcessPaymentSubscription(BaseModel):
     amount_paid: float
     payment_method: str  # Ej: "Zelle", "Pago Movil", "Efectivo", "Stripe"
     notes: Optional[str] = None
+
+# --- Esquemas de Clases ---
+class ClassSessionCreate(BaseModel):
+    name: str # Ej: "WOD", "Open", "Weightlifting"
+    start_time: datetime
+    end_time: datetime
+    coach_id: UUID
+    capacity: int = 18  # Límite estricto por defecto
+
+class ClassSessionResponse(ClassSessionCreate):
+    id: UUID
+    
+    class Config:
+        from_attributes = True
+
+# --- Esquemas de Reservas ---
+class BookingCreate(BaseModel):
+    user_id: UUID
+    class_id: UUID
+
+class BookingResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    class_id: UUID
+    status: str # RESERVED, WAITLISTED, CANCELLED, LATE_CANCEL, ATTENDED
+    created_at: datetime
 
     class Config:
         from_attributes = True # Permite a Pydantic leer modelos de SQLAlchemy

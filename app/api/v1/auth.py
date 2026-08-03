@@ -34,7 +34,6 @@ async def register_user(
         password_hash=security.get_password_hash(user_in.password),
         first_name=user_in.first_name,
         last_name=user_in.last_name,
-        tenant_box_id=user_in.tenant_box_id,
         roles=[UserRole.ATHLETE] 
     )
     
@@ -86,7 +85,6 @@ async def login_access_token(
 async def get_users(
     skip: int = 0, 
     limit: int = 100, 
-    tenant_box_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db)
 ):
     """

@@ -1,22 +1,28 @@
 # app/api/v1/operations.py
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 
 from app.core.database import get_db
 from app.models.schema import ClassSession, Booking, UserSubscription
-from app.schemas.payloads import ClassSessionCreate, ClassSessionResponse, BookingCreate, BookingResponse
+from app.schemas.payloads import (
+    ClassSessionCreate, 
+    ClassSessionResponse, 
+    BookingCreate, 
+    BookingResponse
+)
 
 CARACAS_TZ = ZoneInfo("America/Caracas")
 
 router = APIRouter(prefix="/operations", tags=["Operaciones y Reservas"])
 
 # ==========================================
-# 1. GESTIÓN DE CLASES (STAFF)
+# 1. GESTIÓN Y CARTELERA DE CLASES
 # ==========================================
 
 @router.post("/classes", response_model=ClassSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -25,7 +31,7 @@ async def create_class_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    El Head Coach precarga los horarios de las clases.
+    El Head Coach precarga los horarios de las clases para el gimnasio.
     """
     new_class = ClassSession(
         name=payload.name,
@@ -38,6 +44,62 @@ async def create_class_session(
     await db.commit()
     await db.refresh(new_class)
     return new_class
+
+
+@router.get("/classes")
+async def list_classes(
+    filter_date: Optional[date] = Query(None, description="Filtrar clases por día (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cartelera que consume la App Móvil del Atleta.
+    Devuelve los horarios y calcula dinámicamente:
+    - available_spots (cupos libres)
+    - waitlist_count (personas en lista de espera)
+    """
+    query = select(ClassSession).order_by(ClassSession.start_time.asc())
+    
+    if filter_date:
+        start_of_day = datetime.combine(filter_date, datetime.min.time(), tzinfo=CARACAS_TZ)
+        end_of_day = datetime.combine(filter_date, datetime.max.time(), tzinfo=CARACAS_TZ)
+        query = query.filter(
+            ClassSession.start_time >= start_of_day,
+            ClassSession.start_time <= end_of_day
+        )
+
+    result = await db.execute(query)
+    classes = result.scalars().all()
+
+    response = []
+    for cls in classes:
+        # Conteo de reservados
+        res_count_query = await db.execute(
+            select(func.count(Booking.id))
+            .filter(Booking.class_id == cls.id, Booking.status == "RESERVED")
+        )
+        reserved_count = res_count_query.scalar() or 0
+
+        # Conteo de lista de espera
+        wait_count_query = await db.execute(
+            select(func.count(Booking.id))
+            .filter(Booking.class_id == cls.id, Booking.status == "WAITLISTED")
+        )
+        waitlist_count = wait_count_query.scalar() or 0
+
+        available_spots = max(0, cls.capacity - reserved_count)
+
+        response.append({
+            "id": cls.id,
+            "name": cls.name,
+            "start_time": cls.start_time,
+            "end_time": cls.end_time,
+            "coach_id": cls.coach_id,
+            "capacity": cls.capacity,
+            "available_spots": available_spots,
+            "waitlist_count": waitlist_count
+        })
+
+    return response
 
 
 # ==========================================
@@ -56,11 +118,11 @@ async def reserve_class(
     """
     now_caracas = datetime.now(CARACAS_TZ)
 
-    # 1. BLOQUEO DE LA CLASE: Serializa las peticiones entrantes para esta fila
+    # 1. BLOQUEO DE LA CLASE: Serializa las peticiones entrantes
     class_result = await db.execute(
         select(ClassSession)
         .filter(ClassSession.id == payload.class_id)
-        .with_for_update() 
+        .with_for_update()
     )
     class_session = class_result.scalars().first()
     
@@ -77,7 +139,7 @@ async def reserve_class(
     if now_caracas > class_session.start_time:
         raise HTTPException(status_code=403, detail="La clase ya comenzó o finalizó.")
 
-    # 3. BLOQUEO DE LA SUSCRIPCIÓN: Evita gastar un crédito múltiple veces simultáneas
+    # 3. BLOQUEO DE LA SUSCRIPCIÓN
     sub_result = await db.execute(
         select(UserSubscription)
         .filter(UserSubscription.user_id == payload.user_id)
@@ -99,7 +161,7 @@ async def reserve_class(
         select(func.count(Booking.id))
         .filter(Booking.class_id == payload.class_id, Booking.status == "RESERVED")
     )
-    reserved_count = count_result.scalar()
+    reserved_count = count_result.scalar() or 0
 
     # 5. Determinar estado de la reserva
     if reserved_count < class_session.capacity:
@@ -107,7 +169,7 @@ async def reserve_class(
     else:
         booking_status = "WAITLISTED"
 
-    # 6. Descontar crédito de forma atómica (aplica para RESERVED y WAITLISTED)
+    # 6. Descontar crédito de forma atómica (RESERVED y WAITLISTED)
     subscription.current_weekly_credits -= 1
 
     # 7. Registrar reserva
@@ -119,7 +181,6 @@ async def reserve_class(
     )
     db.add(new_booking)
     
-    # El commit libera los bloqueos para la siguiente petición
     await db.commit()
     await db.refresh(new_booking)
     
@@ -142,8 +203,10 @@ async def cancel_booking(
     """
     now_caracas = datetime.now(CARACAS_TZ)
 
-    # Bloquear la reserva para evitar doble cancelación
-    booking_result = await db.execute(select(Booking).filter(Booking.id == booking_id).with_for_update())
+    # Bloquear la reserva
+    booking_result = await db.execute(
+        select(Booking).filter(Booking.id == booking_id).with_for_update()
+    )
     booking = booking_result.scalars().first()
 
     if not booking or booking.status not in ["RESERVED", "WAITLISTED"]:
@@ -153,7 +216,7 @@ async def cancel_booking(
     class_session = class_result.scalars().first()
     cancellation_deadline = class_session.start_time - timedelta(hours=1)
 
-    # Obtener la suscripción para el posible reintegro
+    # Suscripción del atleta que cancela
     sub_result = await db.execute(
         select(UserSubscription).filter(UserSubscription.user_id == booking.user_id)
     )
@@ -161,13 +224,11 @@ async def cancel_booking(
 
     if booking.status == "WAITLISTED":
         booking.status = "CANCELLED"
-        # Reintegro por salir de lista de espera
         if subscription:
             subscription.current_weekly_credits += 1
     
     else: # status == "RESERVED"
         if now_caracas <= cancellation_deadline:
-            # Cancelación temprana
             booking.status = "CANCELLED"
             if subscription:
                 subscription.current_weekly_credits += 1
@@ -181,10 +242,9 @@ async def cancel_booking(
             next_in_line = waitlist_result.scalars().first()
 
             if next_in_line:
-                # El crédito ya fue retenido al entrar a la lista, solo asciende su estado
+                # El crédito ya fue retenido, solo asciende a RESERVED
                 next_in_line.status = "RESERVED"
         else:
-            # Cancelación tardía: Penalización
             booking.status = "LATE_CANCEL"
 
     await db.commit()
@@ -192,7 +252,7 @@ async def cancel_booking(
 
 
 # ==========================================
-# 4. GESTIÓN DE CHECK-IN EN APP PARA COACHES
+# 4. ROSTER Y CHECK-IN DE COACHES
 # ==========================================
 
 @router.get("/classes/{class_id}/roster", response_model=list[BookingResponse])
@@ -233,3 +293,55 @@ async def process_check_in(
     await db.commit()
     
     return {"message": "Check-in exitoso"}
+
+
+# ==========================================
+# 5. RECONCILIACIÓN Y CIERRE DE CLASE
+# ==========================================
+
+@router.post("/classes/{class_id}/close")
+async def close_class_session(
+    class_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cierre operativo de la clase (lo dispara el Coach al terminar o un Cron Job).
+    - Convierte 'WAITLISTED' pendientes en 'EXPIRED_WAITLIST' y les DEVUELVE su crédito.
+    - Convierte 'RESERVED' (sin check-in) en 'NO_SHOW' (pierden su crédito).
+    """
+    # 1. Traer reservas pendientes de resolución
+    result = await db.execute(
+        select(Booking)
+        .filter(Booking.class_id == class_id)
+        .filter(Booking.status.in_(["WAITLISTED", "RESERVED"]))
+        .with_for_update()
+    )
+    pending_bookings = result.scalars().all()
+
+    reimbursed_users = 0
+    no_shows = 0
+
+    for booking in pending_bookings:
+        if booking.status == "WAITLISTED":
+            booking.status = "EXPIRED_WAITLIST"
+            # Devolver crédito por no haber logrado cupo
+            sub_result = await db.execute(
+                select(UserSubscription).filter(UserSubscription.user_id == booking.user_id)
+            )
+            sub = sub_result.scalars().first()
+            if sub:
+                sub.current_weekly_credits += 1
+                reimbursed_users += 1
+                
+        elif booking.status == "RESERVED":
+            # Si no se le hizo check-in, se considera inasistencia
+            booking.status = "NO_SHOW"
+            no_shows += 1
+
+    await db.commit()
+
+    return {
+        "message": "Clase cerrada exitosamente.",
+        "expired_waitlist_reimbursed": reimbursed_users,
+        "no_shows_recorded": no_shows
+    }
