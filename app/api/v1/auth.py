@@ -89,13 +89,8 @@ async def get_users(
 ):
     """
     Obtiene la lista de usuarios registrados.
-    Permite filtrar por gimnasio (tenant_box_id) y usar paginación.
     """
     query = select(User)
-    
-    if tenant_box_id:
-        query = query.filter(User.tenant_box_id == tenant_box_id)
-        
     query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     users = result.scalars().all()

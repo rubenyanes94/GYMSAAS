@@ -5,15 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
 from app.core.database import get_db
 import uuid
-from app.models.schema import TenantBox, User, UserRole
+from app.models.schema import User, UserRole
 from app.core.security import get_password_hash  # Tu función existente para hashear contraseñas
 # Importa también tu esquema Pydantic de entrada
 from app.api.v1 import auth
+from app.api.v1 import gym_profile
 from app.api.v1.finances import router as finances_router
 
 app = FastAPI(
     title="GYMSAAS Core Engine API",
-    description="Backend SaaS multi-tenant independiente para gimnasios y centros de CrossFit.",
+    description="Backend SaaS independiente para gimnasios y centros de CrossFit.",
     version="1.0.0"
 )
 
@@ -27,6 +28,7 @@ app.add_middleware(
 
 # Registrar rutas
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Autenticación"])
+app.include_router(gym_profile.router, prefix="/api/v1")
 app.include_router(finances_router, prefix="/api/v1")
 
 @app.get("/health", tags=["System"])

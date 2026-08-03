@@ -87,12 +87,18 @@ class UserSubscriptionResponse(BaseModel):
     status: str
     renews_at: datetime
 
+    class Config:
+        from_attributes = True
+        
 class ProcessPaymentSubscription(BaseModel):
     user_id: UUID
     plan_id: UUID
     amount_paid: float
     payment_method: str  # Ej: "Zelle", "Pago Movil", "Efectivo", "Stripe"
     notes: Optional[str] = None
+
+    class Config:
+            from_attributes = True
 
 # --- Esquemas de Clases ---
 class ClassSessionCreate(BaseModel):
@@ -102,6 +108,8 @@ class ClassSessionCreate(BaseModel):
     coach_id: UUID
     capacity: int = 18  # Límite estricto por defecto
 
+    class Config:
+            from_attributes = True
 class ClassSessionResponse(ClassSessionCreate):
     id: UUID
     
@@ -113,12 +121,41 @@ class BookingCreate(BaseModel):
     user_id: UUID
     class_id: UUID
 
+    class Config:
+            from_attributes = True
+
 class BookingResponse(BaseModel):
     id: UUID
     user_id: UUID
     class_id: UUID
     status: str # RESERVED, WAITLISTED, CANCELLED, LATE_CANCEL, ATTENDED
     created_at: datetime
+
+    class Config:
+            from_attributes = True
+
+# ==========================================
+# --- PERFIL DEL GIMNASIO (WHITE-LABEL) ---
+# ==========================================
+class GymProfileResponse(BaseModel):
+    id: UUID
+    name: str
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    instagram_url: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class GymProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    instagram_url: Optional[str] = None
+    whatsapp_number: Optional[str] = None
 
     class Config:
         from_attributes = True # Permite a Pydantic leer modelos de SQLAlchemy

@@ -245,14 +245,17 @@ class FeedComment(Base):
     
     result = relationship("AthleteBlockResult", back_populates="comments")
 
-class TenantBox(Base):
-    __tablename__ = "tenant_boxes"
+# Agrégalo al final de schema.py (Sección de Configuración del Gimnasio)
+
+class GymProfile(Base):
+    __tablename__ = "gym_profile"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(150), nullable=False, unique=True)
-    slug = Column(String(50), unique=True, nullable=False) # Para subdominios o rutas (ej: /api/v1/crossfit-caracas)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=func.now())
-    
-    # Relaciones opcionales para navegar los datos del box
-    # users = relationship("User", back_populates="tenant")
+    name = Column(String(150), nullable=False)
+    logo_url = Column(String, nullable=True)
+    primary_color = Column(String(50), nullable=True)     # Ej: "#FF5733"
+    secondary_color = Column(String(50), nullable=True)   # Ej: "#333333"
+    instagram_url = Column(String, nullable=True)
+    whatsapp_number = Column(String(50), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
