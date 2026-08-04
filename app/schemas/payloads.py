@@ -5,6 +5,7 @@ from datetime import datetime
 from app.models.schema import UserRole
 from app.models.schema import PlanCategory
 from typing import Optional
+from datetime import date
 
 # ==========================================
 # --- TOKENS ---
@@ -24,6 +25,7 @@ class UserBase(BaseModel):
     email: EmailStr
     first_name: str
     last_name: str
+    birth_date: Optional[date] = None
 
 class UserCreate(UserBase):
     password: str
@@ -159,3 +161,51 @@ class GymProfileUpdate(BaseModel):
 
     class Config:
         from_attributes = True # Permite a Pydantic leer modelos de SQLAlchemy
+
+class StaffPermissionsSchema(BaseModel):
+    payment_management: Optional[str] = "NONE"
+    client_management: Optional[str] = "NONE"
+    instructor_management: Optional[str] = "NONE"
+    reports_access: Optional[str] = "NONE"
+    class_management: Optional[str] = "NONE"
+    booking_management: Optional[str] = "INSTRUCTED_ONLY"
+    can_publish_wods: bool = False
+    can_manage_wod_tv: bool = False
+    can_manage_messages: bool = False
+    clock_in_mode: Optional[str] = "DISABLED"
+
+class InstructorCreate(BaseModel):
+    # Ficha básica
+    first_name: str
+    last_name: str
+    second_last_name: Optional[str] = None
+    email: EmailStr
+    birth_date: Optional[date] = None
+    gender: Optional[str] = None
+    phone_mobile: Optional[str] = None
+    phone_landline: Optional[str] = None
+    
+    # Ubicación
+    country: Optional[str] = "Venezuela"
+    city: Optional[str] = None
+    address: Optional[str] = None
+    postal_code: Optional[str] = None
+    notes: Optional[str] = None
+    
+    # Emergencia
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_relation: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_email: Optional[EmailStr] = None
+
+    # Rol y Permisos
+    role: UserRole = UserRole.COACH # COACH o STAFF
+    permissions: Optional[StaffPermissionsSchema] = None
+
+class InstructorResponse(InstructorCreate):
+    id: UUID
+    is_active: bool
+    hired_at: Optional[date] = None
+
+    class Config:
+        from_attributes = True

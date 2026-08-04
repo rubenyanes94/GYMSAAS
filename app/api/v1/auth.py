@@ -1,19 +1,35 @@
+# app/api/v1/auth.py
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from datetime import date
 
 from app.core.database import get_db
 from app.core import security
 from app.models.schema import User, UserRole  
-from app.schemas.payloads import UserCreate, UserResponse, UserUpdate, Token
-from app.schemas.payloads import PasswordChangePublic
+# IMPORTANTE: Agregamos StaffCreate a las importaciones
+from app.schemas.payloads import (
+    UserCreate, 
+    UserResponse, 
+    UserUpdate, 
+    Token, 
+    StaffCreate,
+    PasswordChangePublic,
+    InstructorCreate,      
+    InstructorResponse, 
+    StaffPermissionsSchema   
+)
+
 
 # Instanciamos el router. Esta es la línea que main.py busca.
 router = APIRouter(tags=["Autenticación"])
 
+# ==========================================
+# 1. REGISTRO PÚBLICO (ATLETAS)
+# ==========================================
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_in: UserCreate, 
@@ -21,6 +37,7 @@ async def register_user(
 ):
     """
     Registra un nuevo usuario en la base de datos (Atleta/Cliente).
+    Forza automáticamente el rol de ATHLETE por seguridad.
     """
     result = await db.execute(select(User).filter(User.email == user_in.email))
     if result.scalars().first():
@@ -43,6 +60,50 @@ async def register_user(
     
     return new_user
 
+# ==========================================
+# 2. REGISTRO INTERNO (COACH & STAFF)
+# ==========================================
+@router.post("/register-staff", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def register_staff(
+    user_in: StaffCreate, 
+    db: AsyncSession = Depends(get_db)
+    # NOTA FUTURA: Aquí deberás inyectar tu dependencia de autenticación para 
+    # asegurar que solo el dueño del gimnasio (BOX_OWNER) pueda disparar este endpoint.
+):
+    """
+    Registra un nuevo miembro del staff (Coach o Empleado Administrativo).
+    """
+    # Validamos que el rol enviado sea válido para este endpoint
+    if user_in.role not in [UserRole.COACH, UserRole.STAFF]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Rol inválido. Solo se permite COACH o STAFF."
+        )
+
+    result = await db.execute(select(User).filter(User.email == user_in.email))
+    if result.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El usuario con este correo electrónico ya existe en el sistema."
+        )
+    
+    new_staff = User(
+        email=user_in.email,
+        password_hash=security.get_password_hash(user_in.password),
+        first_name=user_in.first_name,
+        last_name=user_in.last_name,
+        roles=[user_in.role] # Asignamos el rol enviado desde el frontend
+    )
+    
+    db.add(new_staff)
+    await db.commit()
+    await db.refresh(new_staff)
+    
+    return new_staff
+
+# ==========================================
+# 3. LOGIN & GESTIÓN DE SESIÓN
+# ==========================================
 @router.post("/login", response_model=Token)
 async def login_access_token(
     db: AsyncSession = Depends(get_db),
@@ -62,25 +123,52 @@ async def login_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
         
-    # ==========================================
-    # NUEVA LÓGICA: Bloqueo de contraseña temporal
-    # ==========================================
     if user.requires_password_change:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            # Enviamos un código específico para que React lo lea fácilmente 
-            # en el bloque catch (e.response.data.detail)
             detail="REQUIRES_PASSWORD_CHANGE" 
         )
         
-    access_token = security.create_access_token(subject=user.id)
+    access_token = security.create_access_token(subject=str(user.id))
     
     return {
         "access_token": access_token,
         "token_type": "bearer"
     }
 
-# CORREGIDO: Usamos list (minúscula) nativo de Python 3.9+
+@router.post("/change-temporary-password", status_code=status.HTTP_200_OK)
+async def change_temporary_password(
+    payload: PasswordChangePublic,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Permite a un usuario con credenciales temporales establecer su contraseña definitiva.
+    """
+    result = await db.execute(select(User).filter(User.email == payload.email))
+    user = result.scalars().first()
+
+    if not user or not security.verify_password(payload.temporary_password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales inválidas."
+        )
+
+    if not user.requires_password_change:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este usuario no requiere un cambio de contraseña."
+        )
+
+    user.password_hash = security.get_password_hash(payload.new_password)
+    user.requires_password_change = False
+    
+    await db.commit()
+    
+    return {"message": "Contraseña actualizada exitosamente. Ya puedes iniciar sesión."}
+
+# ==========================================
+# 4. CRUD BÁSICO DE USUARIOS
+# ==========================================
 @router.get("/users", response_model=list[UserResponse])
 async def get_users(
     skip: int = 0, 
@@ -90,13 +178,11 @@ async def get_users(
     """
     Obtiene la lista de usuarios registrados.
     """
-    query = select(User)
-    query = query.offset(skip).limit(limit)
+    query = select(User).offset(skip).limit(limit)
     result = await db.execute(query)
     users = result.scalars().all()
     
     return users
-
 
 @router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(
@@ -134,36 +220,63 @@ async def update_user(
     
     return user
 
-@router.post("/change-temporary-password", status_code=status.HTTP_200_OK)
-async def change_temporary_password(
-    payload: PasswordChangePublic,
+@router.post("/instructors", response_model=InstructorResponse, status_code=status.HTTP_201_CREATED)
+async def create_instructor_profile(
+    payload: InstructorCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Permite a un usuario con credenciales temporales establecer su contraseña definitiva.
+    Crea la ficha del instructor/staff con su matriz de permisos
+    y marca la cuenta para requerir cambio de contraseña mediante correo.
     """
-    # 1. Buscamos al usuario
-    result = await db.execute(select(User).filter(User.email == payload.email))
-    user = result.scalars().first()
+    # 1. Validar correo duplicado
+    existing = await db.execute(select(User).filter(User.email == payload.email))
+    if existing.scalars().first():
+        raise HTTPException(status_code=400, detail="El correo ya se encuentra registrado.")
 
-    # 2. Validamos que exista y que la contraseña temporal sea correcta
-    if not user or not security.verify_password(payload.temporary_password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales inválidas."
-        )
-
-    # 3. Validamos que realmente necesite un cambio (evita que se use para saltar la seguridad normal)
-    if not user.requires_password_change:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este usuario no requiere un cambio de contraseña."
-        )
-
-    # 4. Actualizamos la contraseña y liberamos la cuenta
-    user.password_hash = security.get_password_hash(payload.new_password)
-    user.requires_password_change = False
+    # 2. Generar contraseña temporal segura
+    temp_password = security.generate_random_password()
     
+    # 3. Instanciar Usuario con ficha extendida
+    new_instructor = User(
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        second_last_name=payload.second_last_name,
+        email=payload.email,
+        password_hash=security.get_password_hash(temp_password),
+        requires_password_change=True, # Forzará al coach a colocar su clave al entrar
+        roles=[payload.role],
+        birth_date=payload.birth_date,
+        gender=payload.gender,
+        phone_mobile=payload.phone_mobile,
+        phone_landline=payload.phone_landline,
+        country=payload.country,
+        city=payload.city,
+        address=payload.address,
+        postal_code=payload.postal_code,
+        notes=payload.notes,
+        emergency_contact_name=payload.emergency_contact_name,
+        emergency_contact_relation=payload.emergency_contact_relation,
+        emergency_contact_phone=payload.emergency_contact_phone,
+        emergency_contact_email=payload.emergency_contact_email,
+        hired_at=date.today()
+    )
+    
+    db.add(new_instructor)
+    await db.flush()
+
+    # 4. Asignar matriz de permisos
+    perm_data = payload.permissions.model_dump() if payload.permissions else {}
+    instructor_perms = StaffPermissionsSchema(
+        user_id=new_instructor.id,
+        **perm_data
+    )
+    db.add(instructor_perms)
+
     await db.commit()
-    
-    return {"message": "Contraseña actualizada exitosamente. Ya puedes iniciar sesión."}
+    await db.refresh(new_instructor)
+
+    # 5. TODO: Disparar servicio de Email con la invitación y temp_password
+    # send_instructor_invitation_email(email=new_instructor.email, temp_pwd=temp_password)
+
+    return new_instructor

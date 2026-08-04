@@ -1,3 +1,5 @@
+import secrets
+import string
 from datetime import datetime, timedelta
 from typing import Optional, Union, Any
 from jose import jwt
@@ -23,3 +25,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+def generate_random_password(length: int = 12) -> str:
+    """
+    Genera una contraseña temporal segura alfanumérica para los nuevos instructores/staff.
+    """
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return ''.join(secrets.choice(alphabet) for i in range(length))

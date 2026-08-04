@@ -67,6 +67,7 @@ class User(Base):
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
+    birth_date = Column(Date, nullable=True)
     password_hash = Column(String(255), nullable=False)
     profile_picture_url = Column(String, nullable=True) 
     roles = Column(ARRAY(Enum(UserRole)), default=[UserRole.ATHLETE])
@@ -75,7 +76,70 @@ class User(Base):
     biometric_reference_id = Column(String(255), unique=True, nullable=True)
     booking_suspended_until = Column(DateTime(timezone=True), nullable=True)
 
+# ================= X. DOMINIO STAFF & INSTRUCTORES =================
+class InstructorProfile(Base):
+    """
+    Ficha detallada del instructor/staff. 
+    Solo existirá un registro aquí si el usuario tiene el rol COACH o STAFF.
+    """
+    __tablename__ = "instructor_profiles"
 
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False)
+
+    # --- Datos de Ficha Personal (AimHarder) ---
+    second_last_name = Column(String(100), nullable=True)
+    birth_date = Column(Date, nullable=True)
+    gender = Column(String(20), nullable=True)            # Ej: MALE, FEMALE, OTHER
+    phone_mobile = Column(String(50), nullable=True)
+    phone_landline = Column(String(50), nullable=True)
+    
+    # Dirección
+    country = Column(String(100), default="Venezuela")
+    city = Column(String(100), nullable=True)
+    address = Column(String(255), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Contacto de Emergencia
+    emergency_contact_name = Column(String(100), nullable=True)
+    emergency_contact_relation = Column(String(50), nullable=True)
+    emergency_contact_phone = Column(String(50), nullable=True)
+    emergency_contact_email = Column(String(255), nullable=True)
+
+    # Datos Operativos
+    hired_at = Column(Date, nullable=True)    # Fecha de alta en el box
+    
+    # Relación inversa
+    user = relationship("User", back_populates="instructor_profile")
+
+
+class StaffPermission(Base):
+    """
+    Representa la matriz de permisos granulares para la gestión del box.
+    """
+    __tablename__ = "staff_permissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False)
+
+    # Permisos Operativos y de Gestión
+    payment_management = Column(String(50), default="NONE")      # NONE, PENDING_ONLY, FULL
+    client_management = Column(String(50), default="NONE")       # NONE, CREATION_ONLY, VIEW_APP, FULL
+    instructor_management = Column(String(50), default="NONE")   # NONE, FULL
+    reports_access = Column(String(50), default="NONE")          # NONE, PARALLEL, FULL
+    class_management = Column(String(50), default="NONE")        # NONE, FULL
+    booking_management = Column(String(50), default="INSTRUCTED_ONLY") # INSTRUCTED_ONLY, ASSIGNED_SCHEDULES, ALL_CLASSES
+    
+    # Switches boleanos de funcionalidades
+    can_publish_wods = Column(Boolean, default=False)
+    can_manage_wod_tv = Column(Boolean, default=False)
+    can_manage_messages = Column(Boolean, default=False)
+    clock_in_mode = Column(String(50), default="DISABLED")       # DISABLED, WEB_APP, GEOLOCATION
+
+    # Relación inversa
+    user = relationship("User", back_populates="staff_permissions")
+    
 # ================= 3. DOMINIO FINANCIERO & MEMBRESÍAS =================
 class TenantPaymentSettings(Base):
     __tablename__ = "tenant_payment_settings"
