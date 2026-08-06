@@ -1,12 +1,9 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
-from app.models.schema import UserRole
-from app.models.schema import PlanCategory
-from typing import Optional
-from datetime import date
+from datetime import datetime, date
 from enum import Enum
+from app.models.schema import UserRole, PlanCategory
 
 # ==========================================
 # --- TOKENS ---
@@ -42,21 +39,23 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = None
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
-    # No exponemos la contraseña aquí por seguridad.
 
 class StaffCreate(BaseModel):
     email: EmailStr
     first_name: str
     last_name: str
     password: str
-    role: UserRole # Aquí el frontend envía "COACH" o "STAFF"
+    role: UserRole
 
 class PasswordChangePublic(BaseModel):
     email: EmailStr
     temporary_password: str
     new_password: str
 
-# --- Esquemas de Planes ---
+
+# ==========================================
+# --- PLANES Y SUSCRIPCIONES ---
+# ==========================================
 class PlanCreate(BaseModel):
     name: str
     category: PlanCategory = PlanCategory.RECURRING
@@ -77,7 +76,6 @@ class PlanResponse(PlanCreate):
     class Config:
         from_attributes = True
 
-# --- Esquemas de Suscripciones ---
 class UserSubscriptionCreate(BaseModel):
     user_id: UUID
     plan_id: UUID
@@ -97,48 +95,76 @@ class ProcessPaymentSubscription(BaseModel):
     user_id: UUID
     plan_id: UUID
     amount_paid: float
-    payment_method: str  # Ej: "Zelle", "Pago Movil", "Efectivo", "Stripe"
+    payment_method: str  
     notes: Optional[str] = None
 
     class Config:
-            from_attributes = True
+        from_attributes = True
 
-# --- Esquemas de Clases ---
+
+# ==========================================
+# --- CLASES Y ESTUDIOS (UNIFICADO) ---
+# ==========================================
+class StudioRoom(str, Enum):
+    YOGA_1 = "YOGA_1"
+    YOGA_2 = "YOGA_2"
+    PILATES = "PILATES"
+
 class ClassSessionCreate(BaseModel):
-    name: str # Ej: "WOD", "Open", "Weightlifting"
+    name: str # Ej: "WOD", "Open", "Vinyasa Flow"
     start_time: datetime
     end_time: datetime
     coach_id: UUID
     capacity: int = 18  # Límite estricto por defecto
+    room: Optional[StudioRoom] = None # Valida que la sala exista si es del Piso 3
 
     class Config:
-            from_attributes = True
+        from_attributes = True
+
 class ClassSessionResponse(ClassSessionCreate):
     id: UUID
     
     class Config:
         from_attributes = True
 
-# --- Esquemas de Reservas ---
+class ClassScheduleResponse(BaseModel):
+    id: UUID
+    name: str
+    room: Optional[StudioRoom] = None
+    start_time: datetime
+    end_time: datetime
+    coach_id: UUID
+    capacity: int
+    available_spots: int
+    waitlist_count: int
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# --- RESERVAS ---
+# ==========================================
 class BookingCreate(BaseModel):
     user_id: UUID
     class_id: UUID
 
     class Config:
-            from_attributes = True
+        from_attributes = True
 
 class BookingResponse(BaseModel):
     id: UUID
     user_id: UUID
     class_id: UUID
-    status: str # RESERVED, WAITLISTED, CANCELLED, LATE_CANCEL, ATTENDED
+    status: str 
     created_at: datetime
 
     class Config:
-            from_attributes = True
+        from_attributes = True
+
 
 # ==========================================
-# --- PERFIL DEL GIMNASIO (WHITE-LABEL) ---
+# --- PERFIL DEL GIMNASIO Y STAFF ---
 # ==========================================
 class GymProfileResponse(BaseModel):
     id: UUID
@@ -161,7 +187,7 @@ class GymProfileUpdate(BaseModel):
     whatsapp_number: Optional[str] = None
 
     class Config:
-        from_attributes = True # Permite a Pydantic leer modelos de SQLAlchemy
+        from_attributes = True 
 
 class StaffPermissionsSchema(BaseModel):
     payment_management: Optional[str] = "NONE"
@@ -176,7 +202,6 @@ class StaffPermissionsSchema(BaseModel):
     clock_in_mode: Optional[str] = "DISABLED"
 
 class InstructorCreate(BaseModel):
-    # Ficha básica
     first_name: str
     last_name: str
     second_last_name: Optional[str] = None
@@ -186,21 +211,18 @@ class InstructorCreate(BaseModel):
     phone_mobile: Optional[str] = None
     phone_landline: Optional[str] = None
     
-    # Ubicación
     country: Optional[str] = "Venezuela"
     city: Optional[str] = None
     address: Optional[str] = None
     postal_code: Optional[str] = None
     notes: Optional[str] = None
     
-    # Emergencia
     emergency_contact_name: Optional[str] = None
     emergency_contact_relation: Optional[str] = None
     emergency_contact_phone: Optional[str] = None
     emergency_contact_email: Optional[EmailStr] = None
 
-    # Rol y Permisos
-    role: UserRole = UserRole.COACH # COACH o STAFF
+    role: UserRole = UserRole.COACH 
     permissions: Optional[StaffPermissionsSchema] = None
 
 class InstructorResponse(InstructorCreate):
@@ -210,10 +232,11 @@ class InstructorResponse(InstructorCreate):
 
     class Config:
         from_attributes = True
-# ==========================================
-# --- GYM TRADICIONAL Y SERVICIOS ---
-# ==========================================
 
+
+# ==========================================
+# --- RECURSOS FÍSICOS (Sauna, Plunge, etc) ---
+# ==========================================
 class GymAccessLogResponse(BaseModel):
     id: UUID
     user_id: UUID
@@ -222,7 +245,6 @@ class GymAccessLogResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- Recursos Físicos (Sauna, Plunge, Workspace) ---
 class ResourceServicesResponse(BaseModel):
     id: UUID
     name: str
@@ -234,10 +256,9 @@ class ResourceServicesResponse(BaseModel):
 
 class ResourceServicesCreate(BaseModel):
     name: str
-    category: str  # Ej: "SAUNA", "PLUNGE", "WORKSPACE"
+    category: str  
     is_active: Optional[bool] = True
 
-# --- Reservas de Servicios ---
 class ResourceBookingCreate(BaseModel):
     user_id: UUID
     resource_id: UUID
@@ -259,26 +280,9 @@ class ResourceBookingResponseExtended(BaseModel):
     message: str
     status: str
     booking_id: str
-    # Datos opcionales que solo se envían si hay cobro
     amount_due: Optional[float] = None
     currency: Optional[str] = "USD"
-    payment_reason: Optional[str] = None # Ej: "Límite gratuito excedido" o "Usuario no afiliado"
+    payment_reason: Optional[str] = None 
 
     class Config:
         from_attributes = True
-
-# ==========================================
-# --- PISO 3: YOGA Y PILATES ---
-# ==========================================
-
-class StudioRoom(str, Enum):
-    YOGA_1 = "YOGA_1"
-    YOGA_2 = "YOGA_2"
-    PILATES = "PILATES"
-
-class StudioClassCreate(BaseModel):
-    name: str  # Ej: "Vinyasa Flow", "Pilates Mat", "Hatha Yoga"
-    room: StudioRoom
-    start_time: datetime
-    end_time: datetime
-    coach_id: UUID

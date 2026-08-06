@@ -1,4 +1,3 @@
-# app/api/v1/operations.py
 from uuid import UUID
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
@@ -13,6 +12,7 @@ from app.models.schema import ClassSession, Booking, UserSubscription
 from app.schemas.payloads import (
     ClassSessionCreate, 
     ClassSessionResponse, 
+    ClassScheduleResponse,
     BookingCreate, 
     BookingResponse
 )
@@ -20,6 +20,17 @@ from app.schemas.payloads import (
 CARACAS_TZ = ZoneInfo("America/Caracas")
 
 router = APIRouter(prefix="/operations", tags=["Operaciones y Reservas"])
+
+# ==========================================
+# CONFIGURACIÓN DE ACCESOS (TIER-BASED ACL)
+# ==========================================
+# Mapea el identificador del plan con las salas a las que tiene acceso.
+PLANS_WITH_STUDIO_ACCESS = {
+    "YOGA_STANDARD": ["YOGA_1", "YOGA_2", "PILATES"],
+    "CROSSFIT_PREMIUM": ["YOGA_1", "YOGA_2", "PILATES"], 
+    "CROSSFIT_BASIC": [], 
+    "HYBRID_PRO": ["YOGA_1"] 
+}
 
 # ==========================================
 # 1. GESTIÓN Y CARTELERA DE CLASES
@@ -31,14 +42,15 @@ async def create_class_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    El Head Coach precarga los horarios de las clases para el gimnasio.
+    El Head Coach precarga los horarios de las clases para el gimnasio o los estudios.
     """
     new_class = ClassSession(
         name=payload.name,
         start_time=payload.start_time,
         end_time=payload.end_time,
         coach_id=payload.coach_id,
-        capacity=payload.capacity
+        capacity=payload.capacity,
+        room=payload.room  
     )
     db.add(new_class)
     await db.commit()
@@ -46,16 +58,14 @@ async def create_class_session(
     return new_class
 
 
-@router.get("/classes")
+@router.get("/classes", response_model=list[ClassScheduleResponse])
 async def list_classes(
     filter_date: Optional[date] = Query(None, description="Filtrar clases por día (YYYY-MM-DD)"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Cartelera que consume la App Móvil del Atleta.
-    Devuelve los horarios y calcula dinámicamente:
-    - available_spots (cupos libres)
-    - waitlist_count (personas en lista de espera)
+    Devuelve los horarios y calcula dinámicamente cupos libres y lista de espera.
     """
     query = select(ClassSession).order_by(ClassSession.start_time.asc())
     
@@ -91,6 +101,7 @@ async def list_classes(
         response.append({
             "id": cls.id,
             "name": cls.name,
+            "room": cls.room, 
             "start_time": cls.start_time,
             "end_time": cls.end_time,
             "coach_id": cls.coach_id,
@@ -103,7 +114,7 @@ async def list_classes(
 
 
 # ==========================================
-# 2. SISTEMA DE RESERVAS Y LISTA DE ESPERA (CONCURRENCY-SAFE)
+# 2. SISTEMA DE RESERVAS Y LISTA DE ESPERA 
 # ==========================================
 
 @router.post("/bookings/reserve", response_model=BookingResponse)
@@ -112,13 +123,12 @@ async def reserve_class(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Atleta reserva una clase. 
-    Implementa bloqueo pesimista (.with_for_update()) para prevenir 
-    sobreventa en picos de alta concurrencia y double-spending de créditos.
+    Atleta reserva una clase (CrossFit, Yoga o Pilates). 
+    Implementa bloqueo pesimista y valida el Tier-Based ACL si la clase es de Estudio.
     """
     now_caracas = datetime.now(CARACAS_TZ)
 
-    # 1. BLOQUEO DE LA CLASE: Serializa las peticiones entrantes
+    # 1. BLOQUEO DE LA CLASE
     class_result = await db.execute(
         select(ClassSession)
         .filter(ClassSession.id == payload.class_id)
@@ -153,26 +163,40 @@ async def reserve_class(
     if subscription.current_weekly_credits <= 0:
         raise HTTPException(
             status_code=403, 
-            detail="No tienes créditos disponibles para reservar o unirte a la lista de espera."
+            detail="No tienes créditos disponibles para reservar."
         )
 
-    # 4. Comprobar cupos disponibles matemáticamente seguros
+    # 4. LÓGICA TIER-BASED ACCESS
+    if class_session.room:
+        # Aquí asumo que la relación del plan expone su nombre en `plan_name`. 
+        # Ajustar según tu modelo SQL (ej. subscription.plan.name)
+        current_plan = getattr(subscription, "plan_name", "CROSSFIT_BASIC")
+        
+        allowed_rooms = PLANS_WITH_STUDIO_ACCESS.get(current_plan, [])
+        
+        if class_session.room not in allowed_rooms:
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Tu membresía actual ({current_plan}) no incluye acceso a la sala {class_session.room.value}."
+            )
+
+    # 5. Comprobar cupos disponibles matemáticamente seguros
     count_result = await db.execute(
         select(func.count(Booking.id))
         .filter(Booking.class_id == payload.class_id, Booking.status == "RESERVED")
     )
     reserved_count = count_result.scalar() or 0
 
-    # 5. Determinar estado de la reserva
+    # 6. Determinar estado de la reserva
     if reserved_count < class_session.capacity:
         booking_status = "RESERVED"
     else:
         booking_status = "WAITLISTED"
 
-    # 6. Descontar crédito de forma atómica (RESERVED y WAITLISTED)
+    # 7. Descontar crédito atómicamente
     subscription.current_weekly_credits -= 1
 
-    # 7. Registrar reserva
+    # 8. Registrar reserva
     new_booking = Booking(
         user_id=payload.user_id,
         class_id=payload.class_id,
@@ -218,7 +242,7 @@ async def cancel_booking(
 
     # Suscripción del atleta que cancela
     sub_result = await db.execute(
-        select(UserSubscription).filter(UserSubscription.user_id == booking.user_id)
+        select(UserSubscription).filter(UserSubscription.user_id == booking.user_id).with_for_update()
     )
     subscription = sub_result.scalars().first()
 
@@ -233,16 +257,17 @@ async def cancel_booking(
             if subscription:
                 subscription.current_weekly_credits += 1
             
-            # --- LÓGICA DE LISTA DE ESPERA ---
+            # PROMOCIÓN DE LISTA DE ESPERA (FIFO)
             waitlist_result = await db.execute(
                 select(Booking)
                 .filter(Booking.class_id == class_session.id, Booking.status == "WAITLISTED")
                 .order_by(Booking.created_at.asc())
+                .with_for_update()
             )
             next_in_line = waitlist_result.scalars().first()
 
             if next_in_line:
-                # El crédito ya fue retenido, solo asciende a RESERVED
+                # El crédito ya fue retenido al unirse al waitlist, solo asciende
                 next_in_line.status = "RESERVED"
         else:
             booking.status = "LATE_CANCEL"
@@ -309,7 +334,6 @@ async def close_class_session(
     - Convierte 'WAITLISTED' pendientes en 'EXPIRED_WAITLIST' y les DEVUELVE su crédito.
     - Convierte 'RESERVED' (sin check-in) en 'NO_SHOW' (pierden su crédito).
     """
-    # 1. Traer reservas pendientes de resolución
     result = await db.execute(
         select(Booking)
         .filter(Booking.class_id == class_id)
@@ -324,9 +348,8 @@ async def close_class_session(
     for booking in pending_bookings:
         if booking.status == "WAITLISTED":
             booking.status = "EXPIRED_WAITLIST"
-            # Devolver crédito por no haber logrado cupo
             sub_result = await db.execute(
-                select(UserSubscription).filter(UserSubscription.user_id == booking.user_id)
+                select(UserSubscription).filter(UserSubscription.user_id == booking.user_id).with_for_update()
             )
             sub = sub_result.scalars().first()
             if sub:
@@ -334,7 +357,6 @@ async def close_class_session(
                 reimbursed_users += 1
                 
         elif booking.status == "RESERVED":
-            # Si no se le hizo check-in, se considera inasistencia
             booking.status = "NO_SHOW"
             no_shows += 1
 

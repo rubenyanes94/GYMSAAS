@@ -12,7 +12,7 @@ from app.api.v1 import auth
 from app.api.v1 import gym_profile
 from app.api.v1.finances import router as finances_router
 from app.api.v1 import amenities
-from app.api.v1 import studios
+
 
 app = FastAPI(
     title="GYMSAAS Core Engine API",
@@ -33,7 +33,7 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Aut
 app.include_router(gym_profile.router, prefix="/api/v1")
 app.include_router(finances_router, prefix="/api/v1")
 app.include_router(amenities.router, prefix="/api/v1")
-app.include_router(studios.router, prefix="/api/v1")
+
 
 @app.get("/health", tags=["System"])
 async def health_check():
