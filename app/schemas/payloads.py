@@ -6,6 +6,7 @@ from app.models.schema import UserRole
 from app.models.schema import PlanCategory
 from typing import Optional
 from datetime import date
+from enum import Enum
 
 # ==========================================
 # --- TOKENS ---
@@ -253,3 +254,31 @@ class ResourceBookingResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ResourceBookingResponseExtended(BaseModel):
+    message: str
+    status: str
+    booking_id: str
+    # Datos opcionales que solo se envían si hay cobro
+    amount_due: Optional[float] = None
+    currency: Optional[str] = "USD"
+    payment_reason: Optional[str] = None # Ej: "Límite gratuito excedido" o "Usuario no afiliado"
+
+    class Config:
+        from_attributes = True
+
+# ==========================================
+# --- PISO 3: YOGA Y PILATES ---
+# ==========================================
+
+class StudioRoom(str, Enum):
+    YOGA_1 = "YOGA_1"
+    YOGA_2 = "YOGA_2"
+    PILATES = "PILATES"
+
+class StudioClassCreate(BaseModel):
+    name: str  # Ej: "Vinyasa Flow", "Pilates Mat", "Hatha Yoga"
+    room: StudioRoom
+    start_time: datetime
+    end_time: datetime
+    coach_id: UUID

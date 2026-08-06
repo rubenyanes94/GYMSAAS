@@ -208,6 +208,7 @@ class ClassSession(Base):
     start_time = Column(Time, nullable=False)
     end_time = Column(Time, nullable=False)
     max_capacity = Column(Integer, default=12)
+    room = Column(String, nullable=True)
 
 class Booking(Base):
     __tablename__ = "bookings"
