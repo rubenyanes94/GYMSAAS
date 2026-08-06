@@ -209,3 +209,47 @@ class InstructorResponse(InstructorCreate):
 
     class Config:
         from_attributes = True
+# ==========================================
+# --- GYM TRADICIONAL Y SERVICIOS ---
+# ==========================================
+
+class GymAccessLogResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    entry_time: datetime
+
+    class Config:
+        from_attributes = True
+
+# --- Recursos Físicos (Sauna, Plunge, Workspace) ---
+class ResourceServicesResponse(BaseModel):
+    id: UUID
+    name: str
+    category: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+class ResourceServicesCreate(BaseModel):
+    name: str
+    category: str  # Ej: "SAUNA", "PLUNGE", "WORKSPACE"
+    is_active: Optional[bool] = True
+
+# --- Reservas de Servicios ---
+class ResourceBookingCreate(BaseModel):
+    user_id: UUID
+    resource_id: UUID
+    start_time: datetime
+    end_time: datetime
+
+class ResourceBookingResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    resource_id: UUID
+    start_time: datetime
+    end_time: datetime
+    status: str
+
+    class Config:
+        from_attributes = True

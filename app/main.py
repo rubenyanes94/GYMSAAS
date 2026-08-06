@@ -11,6 +11,7 @@ from app.core.security import get_password_hash  # Tu función existente para ha
 from app.api.v1 import auth
 from app.api.v1 import gym_profile
 from app.api.v1.finances import router as finances_router
+from app.api.v1 import amenities
 
 app = FastAPI(
     title="GYMSAAS Core Engine API",
@@ -30,6 +31,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Autenticación"])
 app.include_router(gym_profile.router, prefix="/api/v1")
 app.include_router(finances_router, prefix="/api/v1")
+app.include_router(amenities.router, prefix="/api/v1")
 
 @app.get("/health", tags=["System"])
 async def health_check():

@@ -323,3 +323,41 @@ class GymProfile(Base):
     whatsapp_number = Column(String(50), nullable=True)
     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
+# ==========================================
+# MÓDULO: GYM TRADICIONAL (PISO 2)
+# ==========================================
+class GymAccessLog(Base):
+    __tablename__ = "gym_access_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    entry_time = Column(DateTime(timezone=True), nullable=False)
+    exit_time = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")
+
+
+# ==========================================
+# MÓDULO: SERVICIOS Y WORKSPACES
+# ==========================================
+class ResourceServices(Base):
+    __tablename__ = "resource_services"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    category = Column(String, nullable=False)  # 'SAUNA', 'PLUNGE', 'WORKSPACE'
+    is_active = Column(Boolean, default=True)
+
+
+class ResourceBookingServices(Base):
+    __tablename__ = "resource_booking_services"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    resource_id = Column(UUID(as_uuid=True), ForeignKey("resource_services.id"), nullable=False)
+    start_time = Column(DateTime(timezone=True), nullable=False)
+    end_time = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String, default="CONFIRMED")  # CONFIRMED, CANCELLED, COMPLETED
+
+    user = relationship("User")
+    resource = relationship("ResourceServices")
