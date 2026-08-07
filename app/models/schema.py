@@ -76,6 +76,9 @@ class User(Base):
     biometric_reference_id = Column(String(255), unique=True, nullable=True)
     booking_suspended_until = Column(DateTime(timezone=True), nullable=True)
 
+    instructor_profile = relationship("InstructorProfile", back_populates="user", uselist=False)
+    staff_permissions = relationship("StaffPermission", back_populates="user", uselist=False)
+
 # ================= X. DOMINIO STAFF & INSTRUCTORES =================
 class InstructorProfile(Base):
     """

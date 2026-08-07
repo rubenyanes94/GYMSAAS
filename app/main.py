@@ -12,6 +12,7 @@ from app.api.v1 import auth
 from app.api.v1 import gym_profile
 from app.api.v1.finances import router as finances_router
 from app.api.v1 import amenities
+from app.api.v1 import operations
 
 
 app = FastAPI(
@@ -22,7 +23,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En producción cambiaremos esto por la URL de mi frontend
+    allow_origins=["https://humble-carnival-vqpwppxxj9w3xxq4-5173.app.github.dev", "http://localhost:5173"], # En producción cambiaremos esto por la URL de mi frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,6 +34,7 @@ app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["Aut
 app.include_router(gym_profile.router, prefix="/api/v1")
 app.include_router(finances_router, prefix="/api/v1")
 app.include_router(amenities.router, prefix="/api/v1")
+app.include_router(operations.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["System"])
