@@ -1,45 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import DashboardAdmin from './pages/DashboardAdmin';
 
 function App() {
-  const [status, setStatus] = useState('Conectando al backend...');
-  const [data, setData] = useState(null);
-
-  useEffect(() => {
-    // Vite inyecta las variables de entorno a través de import.meta.env
-    const apiUrl = import.meta.env.VITE_API_URL;
-    
-    console.log("Intentando conectar a:", apiUrl);
-
-    // Hacemos una petición a la cartelera de clases (operations/classes)
-    fetch(`${apiUrl}/operations/classes`)
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Error HTTP: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then(backendData => {
-        console.log("Datos recibidos del backend:", backendData);
-        setStatus('¡Conexión Exitosa! ✅');
-        setData(backendData);
-      })
-      .catch(error => {
-        console.error("Error de conexión o CORS:", error);
-        setStatus('Error de conexión ❌. Revisa la consola.');
-      });
-  }, []);
+  // Estado para controlar qué pantalla estamos viendo
+  const [currentView, setCurrentView] = useState<'login' | 'register' | 'dashboard'>('register');
 
   return (
-    <div style={{ padding: '50px', textAlign: 'center', fontFamily: 'sans-serif' }}>
-      <h1>GYMSAAS - Prueba de Comunicación</h1>
-      <h2>{status}</h2>
-      
-      {data && (
-        <div style={{ marginTop: '20px', padding: '10px', background: '#f0f0f0', borderRadius: '8px', display: 'inline-block' }}>
-          <p>Se encontraron <strong>{data.length}</strong> clases programadas en la base de datos.</p>
-          <p>(Abre la consola del navegador para ver el Array completo)</p>
-        </div>
-      )}
+    <div className="relative">
+      {/* Barra de navegación temporal de desarrollo */}
+      <div className="absolute top-0 left-0 w-full p-4 flex justify-center gap-4 bg-gray-950 text-sm z-50">
+        <button onClick={() => setCurrentView('register')} className="text-gray-400 hover:text-white transition">Ver Registro</button>
+        <button onClick={() => setCurrentView('login')} className="text-gray-400 hover:text-white transition">Ver Login</button>
+        <button onClick={() => setCurrentView('dashboard')} className="text-gray-400 hover:text-white transition">Ver Panel Admin</button>
+      </div>
+
+      {/* Renderizado de la pantalla seleccionada */}
+      <div className="pt-12">
+        {currentView === 'register' && <Register onSwitchToLogin={() => setCurrentView('login')} />}
+        {currentView === 'login' && <Login onLoginSuccess={() => setCurrentView('dashboard')} />}
+        {currentView === 'dashboard' && <DashboardAdmin />}
+      </div>
     </div>
   );
 }
