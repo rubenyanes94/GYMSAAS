@@ -14,13 +14,22 @@ interface ClassScheduleResponse {
   waitlist_count: number;
 }
 
+// Interfaz para los instructores que vienen de /auth/users
+interface CoachUser {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  roles: string[];
+}
+
 // Interfaz extendida para la Interfaz de Usuario (UI)
 interface UIClassSession extends ClassScheduleResponse {
   day: string;
   dateNum: number;
   formattedTime: string;
   instructorName: string;
-  booked: number; // Calculado en el frontend
+  booked: number;
 }
 
 export default function ScheduleCalendar() {
@@ -30,13 +39,14 @@ export default function ScheduleCalendar() {
   const [selectedDay, setSelectedDay] = useState('Lunes');
   
   const [classes, setClasses] = useState<UIClassSession[]>([]);
+  const [coaches, setCoaches] = useState<CoachUser[]>([]); // <--- Estado para guardar los coaches reales
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Estado del Formulario adaptado a ClassSessionCreate
   const [formData, setFormData] = useState({
-    name: '', // Ahora se llenará desde el select
+    name: '',
     date: '', 
     time: '', 
     duration: 60,
@@ -45,35 +55,42 @@ export default function ScheduleCalendar() {
     coach_id: '' 
   });
 
-  // IMPORTANTE: Estos UUIDs deben existir en tu base de datos (tabla users).
-  const dummyCoaches = [
-    { id: '14a6e445-947f-4efe-8fcb-a28f52022657', name: 'Roberto Ruiz' },
-    { id: '7c7cda91-2421-4689-8c68-e9a5d49e796f ', name: 'Juan Vargas' },
-  ];
-
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const shortDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
   // ==========================================
-  // 1. OBTENER CLASES (GET)
+  // 1. OBTENER CLASES Y COACHES (GET)
   // ==========================================
-  const fetchClasses = async () => {
+  const fetchData = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get('/operations/classes');
+      // Petición paralela para traer clases y usuarios al mismo tiempo
+      const [classesRes, usersRes] = await Promise.all([
+        api.get('/operations/classes'),
+        api.get('/auth/users')
+      ]);
       
-      const rawData = Array.isArray(response.data) 
-        ? response.data 
-        : (response.data?.items || response.data?.data || []);
+      // Procesar y filtrar usuarios que sean COACH o STAFF
+      const allUsers: CoachUser[] = Array.isArray(usersRes.data) ? usersRes.data : [];
+      const eligibleCoaches = allUsers.filter(user => 
+        user.roles.includes('COACH') || user.roles.includes('STAFF') || user.roles.includes('BOX_OWNER')
+      );
+      setCoaches(eligibleCoaches);
 
-      const formattedData: UIClassSession[] = rawData.map((cls: ClassScheduleResponse) => {
+      // Procesar clases
+      const rawClasses = Array.isArray(classesRes.data) 
+        ? classesRes.data 
+        : (classesRes.data?.items || classesRes.data?.data || []);
+
+      const formattedData: UIClassSession[] = rawClasses.map((cls: ClassScheduleResponse) => {
         const start = new Date(cls.start_time);
         const end = new Date(cls.end_time);
         
         const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
         
-        const coach = dummyCoaches.find(c => c.id === cls.coach_id);
-        const coachName = coach ? coach.name : 'Coach Asignado';
+        // Buscar el nombre del instructor de forma dinámica
+        const coach = eligibleCoaches.find(c => c.id === cls.coach_id);
+        const coachName = coach ? `${coach.first_name} ${coach.last_name}` : 'Instructor Asignado';
 
         const bookedCount = cls.capacity - (cls.available_spots ?? cls.capacity);
 
@@ -94,14 +111,14 @@ export default function ScheduleCalendar() {
       setError('');
     } catch (err: any) {
       console.error(err);
-      setError(err.response?.data?.detail || 'Error al cargar la cartelera de clases.');
+      setError(err.response?.data?.detail || 'Error al sincronizar datos con el servidor.');
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchClasses();
+    fetchData();
   }, []);
 
   // ==========================================
@@ -133,7 +150,7 @@ export default function ScheduleCalendar() {
       setIsModalOpen(false);
       setFormData({ name: '', date: '', time: '', duration: 60, capacity: 18, room: '', coach_id: '' });
       
-      await fetchClasses(); 
+      await fetchData(); 
       setShowSuccessModal(true);
       
     } catch (err: any) {
@@ -401,11 +418,11 @@ export default function ScheduleCalendar() {
                     className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-black focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
                   >
                     <option value="">Sin sala específica</option>
-                    <option value="CROSSFIT">CrossFit</option>
-                    <option value="WEIGHTLIFTING">Weightlifting</option>
-                    <option value="GYMNASTICS">Gimnástica</option>
-                    <option value="ENDURANCE">Endurance</option>
-                    <option value="HYROX">Hyrox</option>
+                    <option value="CROSSFIT">Zona CrossFit</option>
+                    <option value="WEIGHTLIFTING">Plataformas (Weightlifting)</option>
+                    <option value="GYMNASTICS">Área Gimnástica</option>
+                    <option value="ENDURANCE">Zona Endurance</option>
+                    <option value="HYROX">Pista Hyrox</option>
                     <option value="YOGA_1">Sala Yoga 1</option>
                     <option value="YOGA_2">Sala Yoga 2</option>
                     <option value="PILATES">Sala Pilates</option>
@@ -413,10 +430,17 @@ export default function ScheduleCalendar() {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-sm font-semibold text-black">Instructor Asignado</label>
-                  <select required value={formData.coach_id} onChange={(e) => setFormData({...formData, coach_id: e.target.value})} className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-black focus:border-black focus:outline-none focus:ring-1 focus:ring-black">
+                  <select 
+                    required 
+                    value={formData.coach_id} 
+                    onChange={(e) => setFormData({...formData, coach_id: e.target.value})} 
+                    className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-black focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                  >
                     <option value="">Seleccionar coach...</option>
-                    {dummyCoaches.map(coach => (
-                      <option key={coach.id} value={coach.id}>{coach.name}</option>
+                    {coaches.map(coach => (
+                      <option key={coach.id} value={coach.id}>
+                        {coach.first_name} {coach.last_name} ({coach.roles.join(', ')})
+                      </option>
                     ))}
                   </select>
                 </div>
