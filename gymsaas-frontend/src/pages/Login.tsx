@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import api from '../services/api';
 
-export default function Login({ onLoginSuccess }: { onLoginSuccess: () => void }) {
+export default function Login({ onLoginSuccess, onSwitchToRegister }: { onLoginSuccess: () => void; onSwitchToRegister?: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -13,7 +13,6 @@ export default function Login({ onLoginSuccess }: { onLoginSuccess: () => void }
     setLoading(true);
 
     try {
-      // FastAPI OAuth2PasswordRequestForm requiere formato x-www-form-urlencoded
       const formData = new URLSearchParams();
       formData.append('username', email);
       formData.append('password', password);
@@ -22,7 +21,6 @@ export default function Login({ onLoginSuccess }: { onLoginSuccess: () => void }
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 
-      // Guardamos el token JWT
       localStorage.setItem('access_token', response.data.access_token);
       setLoading(false);
       onLoginSuccess();
@@ -33,50 +31,80 @@ export default function Login({ onLoginSuccess }: { onLoginSuccess: () => void }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-900 px-4">
-      <div className="w-full max-w-md rounded-xl bg-gray-800 p-8 shadow-2xl border border-gray-700">
-        <h2 className="text-3xl font-ext500 text-center text-white mb-2">GYMSAAS</h2>
-        <p className="text-center text-gray-400 mb-6">Inicia sesión en tu cuenta</p>
+    <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 lg:px-8">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <h2 className="mt-6 text-center text-3xl font-extrabold tracking-tight text-black">
+          GYMSAAS
+        </h2>
+        <p className="mt-2 text-center text-sm text-gray-600">
+          Bienvenido de vuelta.
+        </p>
+      </div>
 
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-500/10 border border-red-500 p-3 text-sm text-red-400 text-center">
-            {error}
-          </div>
-        )}
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="bg-white px-4 py-8 sm:rounded-xl sm:border sm:border-gray-200 sm:px-10 sm:shadow-sm">
+          {error && (
+            <div className="mb-6 rounded-lg bg-gray-50 border-l-4 border-black p-4 text-sm text-black">
+              <p className="font-medium">{error}</p>
+            </div>
+          )}
 
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Correo Electrónico</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg bg-gray-700 border border-gray-600 px-4 py-3 text-white focus:border-orange-500 focus:outline-none"
-              placeholder="atleta@gymsaas.com"
-            />
-          </div>
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-sm font-semibold text-black mb-1.5">
+                Correo Electrónico
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="block w-full appearance-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-black placeholder-gray-400 focus:border-black focus:outline-none focus:ring-2 focus:ring-black transition-colors"
+                placeholder="atleta@gymsaas.com"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Contraseña</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg bg-gray-700 border border-gray-600 px-4 py-3 text-white focus:border-orange-500 focus:outline-none"
-              placeholder="••••••••"
-            />
-          </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-semibold text-black">
+                  Contraseña
+                </label>
+                <a href="#" className="text-sm font-medium text-gray-500 hover:text-black transition-colors">
+                  ¿Olvidaste tu clave?
+                </a>
+              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="block w-full appearance-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-black placeholder-gray-400 focus:border-black focus:outline-none focus:ring-2 focus:ring-black transition-colors"
+                placeholder="••••••••"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-orange-600 py-3 font-semibold text-white transition hover:bg-orange-500 disabled:opacity-50"
-          >
-            {loading ? 'Verificando...' : 'Entrar'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex w-full justify-center rounded-lg bg-black px-4 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 transition-all active:scale-[0.98] disabled:opacity-50"
+            >
+              {loading ? 'Verificando...' : 'Iniciar Sesión'}
+            </button>
+          </form>
+
+          {onSwitchToRegister && (
+            <div className="mt-8 text-center text-sm">
+              <span className="text-gray-500">¿No tienes una cuenta? </span>
+              <button
+                type="button"
+                onClick={onSwitchToRegister}
+                className="font-bold text-black hover:underline"
+              >
+                Regístrate ahora
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
