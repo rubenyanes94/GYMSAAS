@@ -36,6 +36,10 @@ PLANS_WITH_STUDIO_ACCESS = {
 # 1. GESTIÓN Y CARTELERA DE CLASES
 # ==========================================
 
+# ==========================================
+# 1. GESTIÓN Y CARTELERA DE CLASES
+# ==========================================
+
 @router.post("/classes", response_model=ClassSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_class_session(
     payload: ClassSessionCreate,
@@ -44,18 +48,31 @@ async def create_class_session(
     """
     El Head Coach precarga los horarios de las clases para el gimnasio o los estudios.
     """
+    # 1. Mapeamos el payload a las columnas reales de ClassSession
     new_class = ClassSession(
-        name=payload.name,
-        start_time=payload.start_time,
-        end_time=payload.end_time,
+        track_category=payload.name,               # En la BD se llama track_category
+        session_date=payload.start_time.date(),    # Extraemos solo la fecha (YYYY-MM-DD)
+        start_time=payload.start_time.time(),      # Extraemos solo la hora
+        end_time=payload.end_time.time(),          # Extraemos solo la hora
         coach_id=payload.coach_id,
-        capacity=payload.capacity,
-        room=payload.room  
+        max_capacity=payload.capacity,             # En la BD se llama max_capacity
+        room=payload.room.value if payload.room else None  # Extraemos el valor del Enum a String
     )
+    
     db.add(new_class)
     await db.commit()
     await db.refresh(new_class)
-    return new_class
+    
+    # 2. Retornamos la respuesta reconstruyendo el formato datetime que espera el Frontend
+    return {
+        "id": new_class.id,
+        "name": new_class.track_category.value if hasattr(new_class.track_category, 'value') else new_class.track_category,
+        "start_time": datetime.combine(new_class.session_date, new_class.start_time),
+        "end_time": datetime.combine(new_class.session_date, new_class.end_time),
+        "coach_id": new_class.coach_id,
+        "capacity": new_class.max_capacity,
+        "room": new_class.room
+    }
 
 
 @router.get("/classes", response_model=list[ClassScheduleResponse])
@@ -64,18 +81,14 @@ async def list_classes(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Cartelera que consume la App Móvil del Atleta.
-    Devuelve los horarios y calcula dinámicamente cupos libres y lista de espera.
+    Cartelera que consume la App Móvil del Atleta y el Dashboard Admin.
     """
-    query = select(ClassSession).order_by(ClassSession.start_time.asc())
+    # Ordenamos por fecha y luego por hora
+    query = select(ClassSession).order_by(ClassSession.session_date.asc(), ClassSession.start_time.asc())
     
+    # Filtramos correctamente usando session_date (Date)
     if filter_date:
-        start_of_day = datetime.combine(filter_date, datetime.min.time(), tzinfo=CARACAS_TZ)
-        end_of_day = datetime.combine(filter_date, datetime.max.time(), tzinfo=CARACAS_TZ)
-        query = query.filter(
-            ClassSession.start_time >= start_of_day,
-            ClassSession.start_time <= end_of_day
-        )
+        query = query.filter(ClassSession.session_date == filter_date)
 
     result = await db.execute(query)
     classes = result.scalars().all()
@@ -96,16 +109,17 @@ async def list_classes(
         )
         waitlist_count = wait_count_query.scalar() or 0
 
-        available_spots = max(0, cls.capacity - reserved_count)
+        # Calculamos cupos en base a max_capacity
+        available_spots = max(0, cls.max_capacity - reserved_count)
 
         response.append({
             "id": cls.id,
-            "name": cls.name,
+            "name": cls.track_category.value if hasattr(cls.track_category, 'value') else cls.track_category,
             "room": cls.room, 
-            "start_time": cls.start_time,
-            "end_time": cls.end_time,
+            "start_time": datetime.combine(cls.session_date, cls.start_time), # Reconstruimos ISO string
+            "end_time": datetime.combine(cls.session_date, cls.end_time),
             "coach_id": cls.coach_id,
-            "capacity": cls.capacity,
+            "capacity": cls.max_capacity, # Mapeamos a capacity para el front
             "available_spots": available_spots,
             "waitlist_count": waitlist_count
         })

@@ -106,9 +106,18 @@ class ProcessPaymentSubscription(BaseModel):
 # --- CLASES Y ESTUDIOS (UNIFICADO) ---
 # ==========================================
 class StudioRoom(str, Enum):
+    CROSSFIT = "CROSSFIT"
+    WEIGHTLIFTING = "WEIGHTLIFTING"
+    GYMNASTICS = "GYMNASTICS"
+    ENDURANCE = "ENDURANCE"
+    HYROX = "HYROX"
     YOGA_1 = "YOGA_1"
     YOGA_2 = "YOGA_2"
     PILATES = "PILATES"
+    SAUNA = "SAUNA"
+    PLUNGE = "PLUNGE"
+
+
 
 class ClassSessionCreate(BaseModel):
     name: str # Ej: "WOD", "Open", "Vinyasa Flow"

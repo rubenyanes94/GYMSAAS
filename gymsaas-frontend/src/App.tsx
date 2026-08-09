@@ -2,10 +2,11 @@ import { useState } from 'react';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import DashboardAdmin from './pages/DashboardAdmin';
+import ScheduleCalendar from './components/operations/ScheduleCalendar';
 
 function App() {
   // Estado para controlar qué pantalla estamos viendo
-  const [currentView, setCurrentView] = useState<'login' | 'register' | 'dashboard'>('register');
+  const [currentView, setCurrentView] = useState<'login' | 'register' | 'dashboard' | 'ScheduleCalendar'>('register');
 
   return (
     <div className="relative">
@@ -14,6 +15,7 @@ function App() {
         <button onClick={() => setCurrentView('register')} className="text-gray-400 hover:text-white transition">Ver Registro</button>
         <button onClick={() => setCurrentView('login')} className="text-gray-400 hover:text-white transition">Ver Login</button>
         <button onClick={() => setCurrentView('dashboard')} className="text-gray-400 hover:text-white transition">Ver Panel Admin</button>
+        <button onClick={() => setCurrentView('ScheduleCalendar')} className="text-gray-400 hover:text-white transition">Ver Calendario de Horarios</button>
       </div>
 
       {/* Renderizado de la pantalla seleccionada */}
@@ -21,6 +23,7 @@ function App() {
         {currentView === 'register' && <Register onSwitchToLogin={() => setCurrentView('login')} />}
         {currentView === 'login' && <Login onLoginSuccess={() => setCurrentView('dashboard')} />}
         {currentView === 'dashboard' && <DashboardAdmin />}
+        {currentView === 'ScheduleCalendar' && <ScheduleCalendar />}
       </div>
     </div>
   );
