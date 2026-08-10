@@ -44,10 +44,9 @@ export default function ScheduleCalendar() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // Estado para controlar si estamos creando o editando
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
 
-  // Estado del Formulario
+  // Estado del Formulario Principal
   const [formData, setFormData] = useState({
     name: '',
     date: '', 
@@ -58,11 +57,18 @@ export default function ScheduleCalendar() {
     coach_id: '' 
   });
 
+  // Estado para la lógica de Repetición / Duplicación
+  const [repeatConfig, setRepeatConfig] = useState({
+    isRecurring: false,
+    days: [] as number[], // 0: Dom, 1: Lun, 2: Mar, 3: Mié, 4: Jue, 5: Vie, 6: Sáb
+    weeks: 4 // Por defecto un mes
+  });
+
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const shortDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
   // ==========================================
-  // 1. OBTENER CLASES Y COACHES (GET)
+  // 1. OBTENER CLASES Y COACHES
   // ==========================================
   const fetchData = async () => {
     setIsLoading(true);
@@ -121,11 +127,12 @@ export default function ScheduleCalendar() {
   }, []);
 
   // ==========================================
-  // ACCIONES DEL MODAL (ABRIR CREAR / ABRIR EDITAR)
+  // ACCIONES DEL MODAL
   // ==========================================
   const openCreateModal = () => {
     setEditingClassId(null);
     setFormData({ name: '', date: '', time: '', duration: 60, capacity: 18, room: '', coach_id: '' });
+    setRepeatConfig({ isRecurring: false, days: [], weeks: 4 });
     setIsModalOpen(true);
   };
 
@@ -149,11 +156,22 @@ export default function ScheduleCalendar() {
       coach_id: cls.coach_id
     });
     
+    // La repetición se oculta en modo edición (solo editamos una instancia)
+    setRepeatConfig({ isRecurring: false, days: [], weeks: 4 });
     setIsModalOpen(true);
   };
 
+  // Función para autocompletar el día en base a la fecha seleccionada
+  useEffect(() => {
+    if (formData.date && repeatConfig.isRecurring && repeatConfig.days.length === 0) {
+      const [year, month, day] = formData.date.split('-').map(Number);
+      const selectedDate = new Date(year, month - 1, day);
+      setRepeatConfig(prev => ({ ...prev, days: [selectedDate.getDay()] }));
+    }
+  }, [formData.date, repeatConfig.isRecurring]);
+
   // ==========================================
-  // 2. CREAR O ACTUALIZAR CLASE (POST / PUT)
+  // 2. CREAR O ACTUALIZAR CLASE (INCLUYE LÓGICA DE REPETICIÓN)
   // ==========================================
   const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,25 +179,76 @@ export default function ScheduleCalendar() {
     setError('');
 
     try {
-      const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
-      const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
-
-      const payload: any = {
-        name: formData.name,
-        capacity: Number(formData.capacity),
-        coach_id: formData.coach_id,
-        start_time: startDateTime.toISOString(),
-        end_time: endDateTime.toISOString(),
-      };
-
-      if (formData.room) {
-        payload.room = formData.room; 
-      }
-
       if (editingClassId) {
+        // --- MODO EDICIÓN (Un solo PUT) ---
+        const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
+        const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
+
+        const payload: any = {
+          name: formData.name,
+          capacity: Number(formData.capacity),
+          coach_id: formData.coach_id,
+          start_time: startDateTime.toISOString(),
+          end_time: endDateTime.toISOString(),
+          room: formData.room || null
+        };
+
         await api.put(`/operations/classes/${editingClassId}`, payload);
+
       } else {
-        await api.post('/operations/classes', payload);
+        // --- MODO CREACIÓN ---
+        if (repeatConfig.isRecurring && repeatConfig.days.length > 0) {
+          // Creación Múltiple (Batch)
+          const [year, month, day] = formData.date.split('-').map(Number);
+          
+          // Calculamos todas las fechas de los próximos días que coincidan
+          const datesToCreate: string[] = [];
+          const totalDays = repeatConfig.weeks * 7;
+          
+          for (let i = 0; i < totalDays; i++) {
+            const current = new Date(year, month - 1, day + i);
+            if (repeatConfig.days.includes(current.getDay())) {
+              const y = current.getFullYear();
+              const m = String(current.getMonth() + 1).padStart(2, '0');
+              const d = String(current.getDate()).padStart(2, '0');
+              datesToCreate.push(`${y}-${m}-${d}`);
+            }
+          }
+
+          // Ejecutamos las peticiones POST en paralelo
+          const promises = datesToCreate.map(dateStr => {
+            const startDateTime = new Date(`${dateStr}T${formData.time}:00`);
+            const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
+            
+            const payload: any = {
+              name: formData.name,
+              capacity: Number(formData.capacity),
+              coach_id: formData.coach_id,
+              start_time: startDateTime.toISOString(),
+              end_time: endDateTime.toISOString(),
+              room: formData.room || null
+            };
+            return api.post('/operations/classes', payload);
+          });
+
+          await Promise.all(promises);
+
+        } else {
+          // Creación Única (1 clase)
+          const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
+          const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
+
+          const payload: any = {
+            name: formData.name,
+            capacity: Number(formData.capacity),
+            coach_id: formData.coach_id,
+            start_time: startDateTime.toISOString(),
+            end_time: endDateTime.toISOString(),
+            room: formData.room || null
+          };
+
+          await api.post('/operations/classes', payload);
+        }
       }
       
       setIsModalOpen(false);
@@ -201,7 +270,7 @@ export default function ScheduleCalendar() {
   };
 
   // ==========================================
-  // 3. ELIMINAR CLASE (DELETE)
+  // 3. ELIMINAR CLASE
   // ==========================================
   const handleDeleteClass = async (classId: string) => {
     if (window.confirm("¿Estás seguro de cancelar y eliminar esta clase? Esta acción es irreversible.")) {
@@ -223,6 +292,15 @@ export default function ScheduleCalendar() {
     const dayIndex = (dateNum + 4) % 7; 
     setSelectedDay(days[dayIndex]);
     setViewType('daily');
+  };
+
+  const toggleDaySelection = (dayVal: number) => {
+    setRepeatConfig(prev => {
+      const newDays = prev.days.includes(dayVal) 
+        ? prev.days.filter(d => d !== dayVal)
+        : [...prev.days, dayVal];
+      return { ...prev, days: newDays };
+    });
   };
 
   return (
@@ -259,7 +337,7 @@ export default function ScheduleCalendar() {
         {isLoading ? (
           <div className="flex min-h-[400px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white">
             <div className="text-center">
-              <svg className="mx-auto h-8 w-8 animate-spin text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              <svg className="mx-auto h-8 w-8 animate-spin text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle></svg>
               <p className="mt-4 text-sm font-bold text-gray-500">Sincronizando con el servidor...</p>
             </div>
           </div>
@@ -292,22 +370,18 @@ export default function ScheduleCalendar() {
                   ) : (
                     filteredDailyClasses.map((cls) => (
                       <div key={cls.id} className="relative flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:shadow-md overflow-hidden">
-                        {/* Banda de color lateral en Negro */}
                         <div className="absolute bottom-0 left-0 top-0 w-1.5 bg-black"></div>
                         
                         <div className="p-5 pl-6 sm:pl-8">
                           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                             <div>
-                              {/* Texto de hora en Negro */}
                               <p className="text-sm font-extrabold text-black">{cls.formattedTime}</p>
                               <h3 className="mt-1 text-2xl font-bold tracking-tight text-black">{cls.name}</h3>
                               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-gray-500">
                                 <span className="uppercase tracking-wider">{cls.room || 'Sin Sala'}</span>
-                                {/* Nombre del Coach añadido aquí */}
                                 <span>Coach: {cls.instructorName}</span>
                                 <span>Plazas ocupadas {cls.booked}/{cls.capacity}</span>
                                 <span>Asistencia {0}/{cls.capacity}</span>
-                                {/* Botón enviar mensaje en Negro */}
                                 <button className="flex items-center text-black font-bold hover:underline">
                                   <svg className="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -317,7 +391,6 @@ export default function ScheduleCalendar() {
                               </div>
                             </div>
                             
-                            {/* Botones de acción principales (Detalle / Cancelar) */}
                             <div className="flex shrink-0 gap-2">
                               <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
                                 Detalle
@@ -333,7 +406,6 @@ export default function ScheduleCalendar() {
                           
                           <div className="my-4 h-px w-full bg-gray-200 border-b border-dashed border-gray-300"></div>
                           
-                          {/* Botones de Gestión Interna de Clase */}
                           <div className="flex flex-wrap gap-2">
                             <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
                               Apuntar a otro cliente
@@ -434,8 +506,8 @@ export default function ScheduleCalendar() {
 
       {/* ================= MODAL DE CREACIÓN / EDICIÓN ================= */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8 my-8">
             <div className="mb-6 flex items-center justify-between">
               <h2 className="text-2xl font-extrabold text-black">
                 {editingClassId ? 'Modificar Horario' : 'Añadir Horario'}
@@ -471,7 +543,7 @@ export default function ScheduleCalendar() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-semibold text-black">Fecha</label>
+                  <label className="mb-1.5 block text-sm font-semibold text-black">Fecha (Inicio)</label>
                   <input required type="date" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-black focus:border-black focus:outline-none focus:ring-1 focus:ring-black" />
                 </div>
                 <div>
@@ -521,19 +593,76 @@ export default function ScheduleCalendar() {
                     <option value="">Seleccionar coach...</option>
                     {coaches.map(coach => (
                       <option key={coach.id} value={coach.id}>
-                        {coach.first_name} {coach.last_name} ({coach.roles.join(', ')})
+                        {coach.first_name} {coach.last_name}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
+              {/* Lógica de Repetición (Solo visible al crear) */}
+              {!editingClassId && (
+                <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <label className="flex cursor-pointer items-center mb-3">
+                    <input 
+                      type="checkbox" 
+                      className="mr-3 h-4 w-4 rounded border-gray-300 text-black focus:ring-black"
+                      checked={repeatConfig.isRecurring}
+                      onChange={(e) => setRepeatConfig({...repeatConfig, isRecurring: e.target.checked})}
+                    />
+                    <span className="text-sm font-bold text-black">Programar para múltiples días (Repetir)</span>
+                  </label>
+                  
+                  {repeatConfig.isRecurring && (
+                    <div className="mt-4 space-y-4 border-t border-gray-200 pt-4">
+                      <div>
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Días a crear la clase</p>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { label: 'L', val: 1 }, { label: 'M', val: 2 }, 
+                            { label: 'X', val: 3 }, { label: 'J', val: 4 }, 
+                            { label: 'V', val: 5 }, { label: 'S', val: 6 }, 
+                            { label: 'D', val: 0 }
+                          ].map(d => (
+                            <button
+                              key={d.val}
+                              type="button"
+                              onClick={() => toggleDaySelection(d.val)}
+                              className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold transition-all ${
+                                repeatConfig.days.includes(d.val) 
+                                ? 'bg-black text-white shadow-md' 
+                                : 'bg-white text-gray-500 border border-gray-300 hover:border-black hover:text-black'
+                              }`}
+                            >
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500">¿Durante cuánto tiempo?</label>
+                        <select 
+                          value={repeatConfig.weeks} 
+                          onChange={(e) => setRepeatConfig({...repeatConfig, weeks: Number(e.target.value)})}
+                          className="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-black focus:border-black focus:outline-none"
+                        >
+                          <option value={1}>1 semana (Semana actual)</option>
+                          <option value={2}>2 semanas (Quincena)</option>
+                          <option value={4}>4 semanas (1 mes)</option>
+                          <option value={8}>8 semanas (2 meses)</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="mt-8 flex gap-3">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-black transition-colors hover:bg-gray-50">
                   Cancelar
                 </button>
                 <button type="submit" disabled={isSubmitting} className="w-full flex justify-center rounded-lg bg-black px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-gray-800 disabled:opacity-50">
-                  {isSubmitting ? 'Guardando...' : editingClassId ? 'Actualizar Clase' : 'Guardar Clase'}
+                  {isSubmitting ? 'Procesando...' : editingClassId ? 'Actualizar Clase' : 'Guardar Clase'}
                 </button>
               </div>
             </form>
@@ -551,7 +680,7 @@ export default function ScheduleCalendar() {
               </svg>
             </div>
             <h3 className="mb-2 text-xl font-extrabold text-black">
-              {editingClassId ? '¡Clase Actualizada!' : '¡Clase Creada!'}
+              {editingClassId ? '¡Clase Actualizada!' : '¡Clases Creadas!'}
             </h3>
             <p className="mb-6 text-sm text-gray-500">
               El horario ha sido guardado exitosamente y sincronizado en la cartelera.
