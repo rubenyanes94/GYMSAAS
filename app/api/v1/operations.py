@@ -83,10 +83,8 @@ async def list_classes(
     """
     Cartelera que consume la App Móvil del Atleta y el Dashboard Admin.
     """
-    # Ordenamos por fecha y luego por hora
     query = select(ClassSession).order_by(ClassSession.session_date.asc(), ClassSession.start_time.asc())
     
-    # Filtramos correctamente usando session_date (Date)
     if filter_date:
         query = query.filter(ClassSession.session_date == filter_date)
 
@@ -95,37 +93,92 @@ async def list_classes(
 
     response = []
     for cls in classes:
-        # Conteo de reservados
         res_count_query = await db.execute(
             select(func.count(Booking.id))
-            .filter(Booking.class_id == cls.id, Booking.status == "RESERVED")
+            .filter(Booking.session_id == cls.id, Booking.status == "RESERVED")
         )
         reserved_count = res_count_query.scalar() or 0
 
-        # Conteo de lista de espera
         wait_count_query = await db.execute(
             select(func.count(Booking.id))
-            .filter(Booking.class_id == cls.id, Booking.status == "WAITLISTED")
+            .filter(Booking.session_id == cls.id, Booking.status == "WAITLISTED")
         )
         waitlist_count = wait_count_query.scalar() or 0
 
-        # Calculamos cupos en base a max_capacity
         available_spots = max(0, cls.max_capacity - reserved_count)
 
         response.append({
             "id": cls.id,
             "name": cls.track_category.value if hasattr(cls.track_category, 'value') else cls.track_category,
             "room": cls.room, 
-            "start_time": datetime.combine(cls.session_date, cls.start_time), # Reconstruimos ISO string
+            "start_time": datetime.combine(cls.session_date, cls.start_time),
             "end_time": datetime.combine(cls.session_date, cls.end_time),
             "coach_id": cls.coach_id,
-            "capacity": cls.max_capacity, # Mapeamos a capacity para el front
+            "capacity": cls.max_capacity,
             "available_spots": available_spots,
             "waitlist_count": waitlist_count
         })
 
     return response
 
+@router.put("/classes/{class_id}", response_model=ClassSessionResponse)
+async def update_class_session(
+    class_id: UUID,
+    payload: ClassSessionCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Actualiza los detalles de una clase programada (duración, coach, capacidad, etc).
+    """
+    result = await db.execute(select(ClassSession).filter(ClassSession.id == class_id))
+    cls = result.scalars().first()
+    
+    if not cls:
+        raise HTTPException(status_code=404, detail="Clase no encontrada.")
+
+    # Actualizamos los campos
+    cls.track_category = payload.name
+    cls.session_date = payload.start_time.date()
+    cls.start_time = payload.start_time.time()
+    cls.end_time = payload.end_time.time()
+    cls.coach_id = payload.coach_id
+    cls.max_capacity = payload.capacity
+    cls.room = payload.room.value if payload.room else None
+
+    await db.commit()
+    await db.refresh(cls)
+    
+    return {
+        "id": cls.id,
+        "name": cls.track_category.value,
+        "start_time": datetime.combine(cls.session_date, cls.start_time),
+        "end_time": datetime.combine(cls.session_date, cls.end_time),
+        "coach_id": cls.coach_id,
+        "capacity": cls.max_capacity,
+        "room": cls.room
+    }
+
+@router.delete("/classes/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_class_session(
+    class_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancela y elimina una clase de la cartelera.
+    """
+    result = await db.execute(select(ClassSession).filter(ClassSession.id == class_id))
+    cls = result.scalars().first()
+    
+    if not cls:
+        raise HTTPException(status_code=404, detail="Clase no encontrada.")
+
+    # Opcional: Podrías verificar si hay reservas activas antes de eliminar
+    # await db.execute(delete(Booking).where(Booking.session_id == class_id)) 
+    
+    await db.delete(cls)
+    await db.commit()
+    
+    return None
 
 # ==========================================
 # 2. SISTEMA DE RESERVAS Y LISTA DE ESPERA 

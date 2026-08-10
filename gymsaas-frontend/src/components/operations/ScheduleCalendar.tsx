@@ -29,7 +29,7 @@ interface UIClassSession extends ClassScheduleResponse {
   dateNum: number;
   formattedTime: string;
   instructorName: string;
-  booked: number;
+  booked: number; // Calculado en el frontend
 }
 
 export default function ScheduleCalendar() {
@@ -39,12 +39,15 @@ export default function ScheduleCalendar() {
   const [selectedDay, setSelectedDay] = useState('Lunes');
   
   const [classes, setClasses] = useState<UIClassSession[]>([]);
-  const [coaches, setCoaches] = useState<CoachUser[]>([]); // <--- Estado para guardar los coaches reales
+  const [coaches, setCoaches] = useState<CoachUser[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Estado para controlar si estamos creando o editando
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
 
-  // Estado del Formulario adaptado a ClassSessionCreate
+  // Estado del Formulario
   const [formData, setFormData] = useState({
     name: '',
     date: '', 
@@ -64,20 +67,17 @@ export default function ScheduleCalendar() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // Petición paralela para traer clases y usuarios al mismo tiempo
       const [classesRes, usersRes] = await Promise.all([
         api.get('/operations/classes'),
         api.get('/auth/users')
       ]);
       
-      // Procesar y filtrar usuarios que sean COACH o STAFF
       const allUsers: CoachUser[] = Array.isArray(usersRes.data) ? usersRes.data : [];
       const eligibleCoaches = allUsers.filter(user => 
         user.roles.includes('COACH') || user.roles.includes('STAFF') || user.roles.includes('BOX_OWNER')
       );
       setCoaches(eligibleCoaches);
 
-      // Procesar clases
       const rawClasses = Array.isArray(classesRes.data) 
         ? classesRes.data 
         : (classesRes.data?.items || classesRes.data?.data || []);
@@ -88,7 +88,6 @@ export default function ScheduleCalendar() {
         
         const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
         
-        // Buscar el nombre del instructor de forma dinámica
         const coach = eligibleCoaches.find(c => c.id === cls.coach_id);
         const coachName = coach ? `${coach.first_name} ${coach.last_name}` : 'Instructor Asignado';
 
@@ -122,9 +121,41 @@ export default function ScheduleCalendar() {
   }, []);
 
   // ==========================================
-  // 2. CREAR CLASE (POST)
+  // ACCIONES DEL MODAL (ABRIR CREAR / ABRIR EDITAR)
   // ==========================================
-  const handleCreateClass = async (e: React.FormEvent) => {
+  const openCreateModal = () => {
+    setEditingClassId(null);
+    setFormData({ name: '', date: '', time: '', duration: 60, capacity: 18, room: '', coach_id: '' });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (cls: UIClassSession) => {
+    setEditingClassId(cls.id);
+    
+    const startDate = new Date(cls.start_time);
+    const endDate = new Date(cls.end_time);
+    const durationMins = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
+    
+    const hours = String(startDate.getHours()).padStart(2, '0');
+    const minutes = String(startDate.getMinutes()).padStart(2, '0');
+
+    setFormData({
+      name: cls.name,
+      date: startDate.toISOString().split('T')[0],
+      time: `${hours}:${minutes}`,
+      duration: durationMins,
+      capacity: cls.capacity,
+      room: cls.room || '',
+      coach_id: cls.coach_id
+    });
+    
+    setIsModalOpen(true);
+  };
+
+  // ==========================================
+  // 2. CREAR O ACTUALIZAR CLASE (POST / PUT)
+  // ==========================================
+  const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
@@ -145,17 +176,19 @@ export default function ScheduleCalendar() {
         payload.room = formData.room; 
       }
 
-      await api.post('/operations/classes', payload);
+      if (editingClassId) {
+        await api.put(`/operations/classes/${editingClassId}`, payload);
+      } else {
+        await api.post('/operations/classes', payload);
+      }
       
       setIsModalOpen(false);
-      setFormData({ name: '', date: '', time: '', duration: 60, capacity: 18, room: '', coach_id: '' });
-      
       await fetchData(); 
       setShowSuccessModal(true);
       
     } catch (err: any) {
       console.error(err);
-      let errorMsg = 'Error al crear la clase. Verifica los datos.';
+      let errorMsg = 'Error al procesar la clase. Verifica los datos.';
       if (err.response?.data?.detail && Array.isArray(err.response.data.detail)) {
         errorMsg = `Error en el campo: ${err.response.data.detail[0].loc.join(' -> ')} (${err.response.data.detail[0].msg})`;
       } else if (err.response?.data?.detail) {
@@ -164,6 +197,21 @@ export default function ScheduleCalendar() {
       setError(errorMsg);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // ==========================================
+  // 3. ELIMINAR CLASE (DELETE)
+  // ==========================================
+  const handleDeleteClass = async (classId: string) => {
+    if (window.confirm("¿Estás seguro de cancelar y eliminar esta clase? Esta acción es irreversible.")) {
+      try {
+        await api.delete(`/operations/classes/${classId}`);
+        await fetchData(); 
+      } catch (err: any) {
+        console.error(err);
+        alert(err.response?.data?.detail || "No se pudo cancelar la clase.");
+      }
     }
   };
 
@@ -181,6 +229,7 @@ export default function ScheduleCalendar() {
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
         
+        {/* Cabecera Principal */}
         <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight text-black">Horario de Clases</h1>
@@ -194,7 +243,7 @@ export default function ScheduleCalendar() {
               <button onClick={() => setViewType('monthly')} className={`flex-1 rounded-md px-4 py-2 text-sm font-bold transition-all sm:flex-none ${viewType === 'monthly' ? 'bg-white text-black shadow-sm' : 'text-gray-500 hover:text-black'}`}>Mensual</button>
             </div>
 
-            <button onClick={() => setIsModalOpen(true)} className="flex items-center justify-center rounded-lg bg-black px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-gray-800 active:scale-95">
+            <button onClick={openCreateModal} className="flex items-center justify-center rounded-lg bg-black px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-gray-800 active:scale-95">
               <svg className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
               Añadir
             </button>
@@ -242,31 +291,62 @@ export default function ScheduleCalendar() {
                     </div>
                   ) : (
                     filteredDailyClasses.map((cls) => (
-                      <div key={cls.id} className="relative flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:shadow-md">
-                        <div className="absolute bottom-0 left-0 top-0 w-1.5 rounded-l-xl bg-black"></div>
+                      <div key={cls.id} className="relative flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-all hover:shadow-md overflow-hidden">
+                        {/* Banda de color lateral en Negro */}
+                        <div className="absolute bottom-0 left-0 top-0 w-1.5 bg-black"></div>
+                        
                         <div className="p-5 pl-6 sm:pl-8">
                           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                             <div>
+                              {/* Texto de hora en Negro */}
                               <p className="text-sm font-extrabold text-black">{cls.formattedTime}</p>
                               <h3 className="mt-1 text-2xl font-bold tracking-tight text-black">{cls.name}</h3>
                               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-gray-500">
                                 <span className="uppercase tracking-wider">{cls.room || 'Sin Sala'}</span>
+                                {/* Nombre del Coach añadido aquí */}
                                 <span>Coach: {cls.instructorName}</span>
-                                <span>Reservas: {cls.booked}/{cls.capacity}</span>
-                                {cls.waitlist_count > 0 && (
-                                  <span className="text-orange-600 font-bold">Espera: {cls.waitlist_count}</span>
-                                )}
+                                <span>Plazas ocupadas {cls.booked}/{cls.capacity}</span>
+                                <span>Asistencia {0}/{cls.capacity}</span>
+                                {/* Botón enviar mensaje en Negro */}
+                                <button className="flex items-center text-black font-bold hover:underline">
+                                  <svg className="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                  </svg>
+                                  Enviar mensaje
+                                </button>
                               </div>
                             </div>
+                            
+                            {/* Botones de acción principales (Detalle / Cancelar) */}
                             <div className="flex shrink-0 gap-2">
-                              <button className="rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 text-sm font-bold text-black hover:bg-gray-100">Detalle</button>
-                              <button className="rounded-lg border border-gray-300 bg-gray-50 px-4 py-2 text-sm font-bold text-black hover:border-red-200 hover:bg-red-50 hover:text-red-600">Cancelar</button>
+                              <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
+                                Detalle
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteClass(cls.id)}
+                                className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-red-50 hover:text-red-600 transition-colors"
+                              >
+                                Cancelar clase
+                              </button>
                             </div>
                           </div>
-                          <div className="my-4 h-px w-full bg-gray-100"></div>
+                          
+                          <div className="my-4 h-px w-full bg-gray-200 border-b border-dashed border-gray-300"></div>
+                          
+                          {/* Botones de Gestión Interna de Clase */}
                           <div className="flex flex-wrap gap-2">
-                            <button className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50 hover:text-black">Apuntar cliente</button>
-                            <button className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50 hover:text-black">Modificar clase</button>
+                            <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
+                              Apuntar a otro cliente
+                            </button>
+                            <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
+                              Apuntar invitado
+                            </button>
+                            <button 
+                              onClick={() => openEditModal(cls)}
+                              className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors"
+                            >
+                              Modificar clase
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -290,7 +370,7 @@ export default function ScheduleCalendar() {
                     {['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'].map(day => (
                       <div key={`col-${day}`} className="min-h-[500px] p-2 bg-white flex flex-col gap-2 border-t border-gray-200">
                         {classes.filter(cls => cls.day === day).map(cls => (
-                            <div key={`weekly-${cls.id}`} className="group relative cursor-pointer rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition-all hover:border-black hover:shadow-md border-l-4 border-l-black">
+                            <div key={`weekly-${cls.id}`} onClick={() => openEditModal(cls)} className="group relative cursor-pointer rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition-all hover:border-black hover:shadow-md border-l-4 border-l-black">
                               <p className="text-xs font-bold text-gray-500">{cls.formattedTime}</p>
                               <h4 className="mt-0.5 text-sm font-bold text-black leading-tight">{cls.name}</h4>
                               <div className="mt-2 flex items-center justify-between text-xs">
@@ -352,12 +432,14 @@ export default function ScheduleCalendar() {
         )}
       </div>
 
-      {/* ================= MODAL DE CREACIÓN (POST API) ================= */}
+      {/* ================= MODAL DE CREACIÓN / EDICIÓN ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-2xl font-extrabold text-black">Añadir Horario</h2>
+              <h2 className="text-2xl font-extrabold text-black">
+                {editingClassId ? 'Modificar Horario' : 'Añadir Horario'}
+              </h2>
               <button onClick={() => setIsModalOpen(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-black transition">
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -369,7 +451,7 @@ export default function ScheduleCalendar() {
               </div>
             )}
 
-            <form onSubmit={handleCreateClass} className="space-y-5">
+            <form onSubmit={handleSaveClass} className="space-y-5">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-black">Nombre de Clase</label>
                 <select 
@@ -451,7 +533,7 @@ export default function ScheduleCalendar() {
                   Cancelar
                 </button>
                 <button type="submit" disabled={isSubmitting} className="w-full flex justify-center rounded-lg bg-black px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-gray-800 disabled:opacity-50">
-                  {isSubmitting ? 'Guardando...' : 'Guardar Clase'}
+                  {isSubmitting ? 'Guardando...' : editingClassId ? 'Actualizar Clase' : 'Guardar Clase'}
                 </button>
               </div>
             </form>
@@ -468,7 +550,9 @@ export default function ScheduleCalendar() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h3 className="mb-2 text-xl font-extrabold text-black">¡Clase Creada!</h3>
+            <h3 className="mb-2 text-xl font-extrabold text-black">
+              {editingClassId ? '¡Clase Actualizada!' : '¡Clase Creada!'}
+            </h3>
             <p className="mb-6 text-sm text-gray-500">
               El horario ha sido guardado exitosamente y sincronizado en la cartelera.
             </p>
