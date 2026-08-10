@@ -32,6 +32,14 @@ interface UIClassSession extends ClassScheduleResponse {
   booked: number; // Calculado en el frontend
 }
 
+// ==========================================
+// UTILIDAD PARA CORREGIR EL DESFASE HORARIO (TIMEZONE FIX)
+// ==========================================
+const toLocalISOString = (date: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+};
+
 export default function ScheduleCalendar() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -89,6 +97,7 @@ export default function ScheduleCalendar() {
         : (classesRes.data?.items || classesRes.data?.data || []);
 
       const formattedData: UIClassSession[] = rawClasses.map((cls: ClassScheduleResponse) => {
+        // La fecha llega desde el backend como un string sin 'Z', por lo que el navegador la interpreta localmente
         const start = new Date(cls.start_time);
         const end = new Date(cls.end_time);
         
@@ -143,12 +152,15 @@ export default function ScheduleCalendar() {
     const endDate = new Date(cls.end_time);
     const durationMins = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
     
+    // Extraer datos usando métodos locales para evitar el desfase de toISOString()
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const localDateStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
     const hours = String(startDate.getHours()).padStart(2, '0');
     const minutes = String(startDate.getMinutes()).padStart(2, '0');
 
     setFormData({
       name: cls.name,
-      date: startDate.toISOString().split('T')[0],
+      date: localDateStr,
       time: `${hours}:${minutes}`,
       duration: durationMins,
       capacity: cls.capacity,
@@ -156,12 +168,10 @@ export default function ScheduleCalendar() {
       coach_id: cls.coach_id
     });
     
-    // La repetición se oculta en modo edición (solo editamos una instancia)
     setRepeatConfig({ isRecurring: false, days: [], weeks: 4 });
     setIsModalOpen(true);
   };
 
-  // Función para autocompletar el día en base a la fecha seleccionada
   useEffect(() => {
     if (formData.date && repeatConfig.isRecurring && repeatConfig.days.length === 0) {
       const [year, month, day] = formData.date.split('-').map(Number);
@@ -171,7 +181,7 @@ export default function ScheduleCalendar() {
   }, [formData.date, repeatConfig.isRecurring]);
 
   // ==========================================
-  // 2. CREAR O ACTUALIZAR CLASE (INCLUYE LÓGICA DE REPETICIÓN)
+  // 2. CREAR O ACTUALIZAR CLASE (INCLUYE REPETICIÓN)
   // ==========================================
   const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,8 +198,9 @@ export default function ScheduleCalendar() {
           name: formData.name,
           capacity: Number(formData.capacity),
           coach_id: formData.coach_id,
-          start_time: startDateTime.toISOString(),
-          end_time: endDateTime.toISOString(),
+          // FIX HORARIO: Usar toLocalISOString en vez de .toISOString()
+          start_time: toLocalISOString(startDateTime),
+          end_time: toLocalISOString(endDateTime),
           room: formData.room || null
         };
 
@@ -200,8 +211,6 @@ export default function ScheduleCalendar() {
         if (repeatConfig.isRecurring && repeatConfig.days.length > 0) {
           // Creación Múltiple (Batch)
           const [year, month, day] = formData.date.split('-').map(Number);
-          
-          // Calculamos todas las fechas de los próximos días que coincidan
           const datesToCreate: string[] = [];
           const totalDays = repeatConfig.weeks * 7;
           
@@ -215,7 +224,6 @@ export default function ScheduleCalendar() {
             }
           }
 
-          // Ejecutamos las peticiones POST en paralelo
           const promises = datesToCreate.map(dateStr => {
             const startDateTime = new Date(`${dateStr}T${formData.time}:00`);
             const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
@@ -224,8 +232,9 @@ export default function ScheduleCalendar() {
               name: formData.name,
               capacity: Number(formData.capacity),
               coach_id: formData.coach_id,
-              start_time: startDateTime.toISOString(),
-              end_time: endDateTime.toISOString(),
+              // FIX HORARIO
+              start_time: toLocalISOString(startDateTime),
+              end_time: toLocalISOString(endDateTime),
               room: formData.room || null
             };
             return api.post('/operations/classes', payload);
@@ -242,8 +251,9 @@ export default function ScheduleCalendar() {
             name: formData.name,
             capacity: Number(formData.capacity),
             coach_id: formData.coach_id,
-            start_time: startDateTime.toISOString(),
-            end_time: endDateTime.toISOString(),
+            // FIX HORARIO
+            start_time: toLocalISOString(startDateTime),
+            end_time: toLocalISOString(endDateTime),
             room: formData.room || null
           };
 
