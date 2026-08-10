@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
+from pydantic import BaseModel
 
 from app.core.database import get_db
+from app.models.schema import User # Asegúrate de importar el modelo User si no lo tienes
 from app.models.schema import ClassSession, Booking, UserSubscription
 from app.schemas.payloads import (
     ClassSessionCreate, 
@@ -434,3 +436,71 @@ async def close_class_session(
         "expired_waitlist_reimbursed": reimbursed_users,
         "no_shows_recorded": no_shows
     }
+
+# ==========================================
+# GESTIÓN DE ROSTER (LISTA DE ASISTENCIA)
+# ==========================================
+@router.get("/classes/{class_id}/roster")
+async def get_class_roster(class_id: UUID, db: AsyncSession = Depends(get_db)):
+    """
+    Devuelve la lista de atletas (nombre y apellido) inscritos en una clase específica.
+    """
+    query = (
+        select(User)
+        .join(Booking, Booking.user_id == User.id)
+        .filter(Booking.session_id == class_id, Booking.status == "RESERVED")
+    )
+    result = await db.execute(query)
+    users = result.scalars().all()
+    
+    return [
+        {
+            "id": str(u.id), 
+            "first_name": u.first_name, 
+            "last_name": u.last_name, 
+            "email": u.email
+        }
+        for u in users
+    ]
+
+# ==========================================
+# APUNTAR CLIENTE DESDE PANEL ADMIN
+# ==========================================
+
+class BookClientPayload(BaseModel):
+    user_id: UUID
+
+@router.post("/classes/{class_id}/book", status_code=status.HTTP_201_CREATED)
+async def book_client_to_class(
+    class_id: UUID, 
+    payload: BookClientPayload, 
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Inscribe a un cliente específico en una clase (Usado por el Staff/Coach).
+    Aquí en el futuro se puede validar si el 'user_id' tiene una tarifa activa.
+    """
+    # 1. Verificar que la clase existe
+    result_cls = await db.execute(select(ClassSession).filter(ClassSession.id == class_id))
+    cls = result_cls.scalars().first()
+    if not cls:
+        raise HTTPException(status_code=404, detail="Clase no encontrada.")
+
+    # 2. Verificar que el usuario no esté ya inscrito
+    result_existing = await db.execute(
+        select(Booking).filter(Booking.session_id == class_id, Booking.user_id == payload.user_id)
+    )
+    existing_booking = result_existing.scalars().first()
+    if existing_booking:
+        raise HTTPException(status_code=400, detail="El cliente ya está inscrito o en lista de espera para esta clase.")
+
+    # 3. Crear la reserva
+    new_booking = Booking(
+        user_id=payload.user_id,
+        session_id=class_id,
+        status="RESERVED" # Si el aforo estuviera lleno, aquí se podría poner "WAITLISTED"
+    )
+    db.add(new_booking)
+    await db.commit()
+    
+    return {"message": "Cliente apuntado con éxito"}

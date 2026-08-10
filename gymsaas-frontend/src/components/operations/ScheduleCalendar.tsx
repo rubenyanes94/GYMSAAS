@@ -14,13 +14,21 @@ interface ClassScheduleResponse {
   waitlist_count: number;
 }
 
-// Interfaz para los instructores que vienen de /auth/users
-interface CoachUser {
+// Interfaz para los usuarios (Coaches y Atletas)
+interface GymUser {
   id: string;
   first_name: string;
   last_name: string;
   email: string;
   roles: string[];
+}
+
+// Interfaz para la lista de atletas inscritos (Roster)
+interface RosterAthlete {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
 }
 
 // Interfaz extendida para la Interfaz de Usuario (UI)
@@ -29,11 +37,11 @@ interface UIClassSession extends ClassScheduleResponse {
   dateNum: number;
   formattedTime: string;
   instructorName: string;
-  booked: number; // Calculado en el frontend
+  booked: number;
 }
 
 // ==========================================
-// UTILIDAD PARA CORREGIR EL DESFASE HORARIO (TIMEZONE FIX)
+// UTILIDAD PARA CORREGIR EL DESFASE HORARIO
 // ==========================================
 const toLocalISOString = (date: Date) => {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -43,18 +51,38 @@ const toLocalISOString = (date: Date) => {
 export default function ScheduleCalendar() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('El horario ha sido guardado exitosamente.');
+  
   const [viewType, setViewType] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [selectedDay, setSelectedDay] = useState('Lunes');
   
   const [classes, setClasses] = useState<UIClassSession[]>([]);
-  const [coaches, setCoaches] = useState<CoachUser[]>([]); 
+  const [coaches, setCoaches] = useState<GymUser[]>([]); 
+  const [athletes, setAthletes] = useState<GymUser[]>([]); // Estado para los clientes
+  
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
 
-  // Estado del Formulario Principal
+  // Modal de Eliminación
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [classToDelete, setClassToDelete] = useState<string | null>(null);
+
+  // Modal de Asistencia (Roster)
+  const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
+  const [rosterData, setRosterData] = useState<RosterAthlete[]>([]);
+  const [isRosterLoading, setIsRosterLoading] = useState(false);
+  const [selectedClassTitle, setSelectedClassTitle] = useState('');
+
+  // Modal de Apuntar Cliente
+  const [isAddClientModalOpen, setIsAddClientModalOpen] = useState(false);
+  const [classToBook, setClassToBook] = useState<UIClassSession | null>(null);
+  const [selectedAthleteId, setSelectedAthleteId] = useState('');
+  const [isBookingClient, setIsBookingClient] = useState(false);
+
+  // Estado del Formulario Principal (Crear/Editar Clase)
   const [formData, setFormData] = useState({
     name: '',
     date: '', 
@@ -65,18 +93,17 @@ export default function ScheduleCalendar() {
     coach_id: '' 
   });
 
-  // Estado para la lógica de Repetición / Duplicación
   const [repeatConfig, setRepeatConfig] = useState({
     isRecurring: false,
-    days: [] as number[], // 0: Dom, 1: Lun, 2: Mar, 3: Mié, 4: Jue, 5: Vie, 6: Sáb
-    weeks: 4 // Por defecto un mes
+    days: [] as number[],
+    weeks: 4
   });
 
   const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const shortDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
   // ==========================================
-  // 1. OBTENER CLASES Y COACHES
+  // 1. OBTENER CLASES, COACHES Y ATLETAS
   // ==========================================
   const fetchData = async () => {
     setIsLoading(true);
@@ -86,26 +113,30 @@ export default function ScheduleCalendar() {
         api.get('/auth/users')
       ]);
       
-      const allUsers: CoachUser[] = Array.isArray(usersRes.data) ? usersRes.data : [];
+      const allUsers: GymUser[] = Array.isArray(usersRes.data) ? usersRes.data : [];
+      
+      // Separar Coaches de Atletas
       const eligibleCoaches = allUsers.filter(user => 
         user.roles.includes('COACH') || user.roles.includes('STAFF') || user.roles.includes('BOX_OWNER')
       );
+      const eligibleAthletes = allUsers.filter(user => 
+        user.roles.includes('ATHLETE')
+      );
+      
       setCoaches(eligibleCoaches);
+      setAthletes(eligibleAthletes);
 
       const rawClasses = Array.isArray(classesRes.data) 
         ? classesRes.data 
         : (classesRes.data?.items || classesRes.data?.data || []);
 
       const formattedData: UIClassSession[] = rawClasses.map((cls: ClassScheduleResponse) => {
-        // La fecha llega desde el backend como un string sin 'Z', por lo que el navegador la interpreta localmente
         const start = new Date(cls.start_time);
         const end = new Date(cls.end_time);
-        
         const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
         
         const coach = eligibleCoaches.find(c => c.id === cls.coach_id);
         const coachName = coach ? `${coach.first_name} ${coach.last_name}` : 'Instructor Asignado';
-
         const bookedCount = cls.capacity - (cls.available_spots ?? cls.capacity);
 
         return {
@@ -136,7 +167,42 @@ export default function ScheduleCalendar() {
   }, []);
 
   // ==========================================
-  // ACCIONES DEL MODAL
+  // APUNTAR CLIENTE A UNA CLASE
+  // ==========================================
+  const openAddClientModal = (cls: UIClassSession) => {
+    setClassToBook(cls);
+    setSelectedAthleteId('');
+    setError('');
+    setIsAddClientModalOpen(true);
+  };
+
+  const handleBookClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!classToBook || !selectedAthleteId) return;
+    
+    setIsBookingClient(true);
+    setError('');
+    
+    try {
+      await api.post(`/operations/classes/${classToBook.id}/book`, {
+        user_id: selectedAthleteId
+      });
+      
+      setIsAddClientModalOpen(false);
+      setSuccessMessage('El cliente ha sido inscrito en la clase exitosamente.');
+      setShowSuccessModal(true);
+      await fetchData(); // Refrescar para ver el nuevo cupo ocupado
+      
+    } catch (err: any) {
+      console.error(err);
+      setError(err.response?.data?.detail || 'No se pudo apuntar al cliente. Verifica si ya está inscrito o si la clase está llena.');
+    } finally {
+      setIsBookingClient(false);
+    }
+  };
+
+  // ==========================================
+  // ACCIONES DEL MODAL CREAR/EDITAR
   // ==========================================
   const openCreateModal = () => {
     setEditingClassId(null);
@@ -152,7 +218,6 @@ export default function ScheduleCalendar() {
     const endDate = new Date(cls.end_time);
     const durationMins = Math.round((endDate.getTime() - startDate.getTime()) / 60000);
     
-    // Extraer datos usando métodos locales para evitar el desfase de toISOString()
     const pad = (n: number) => String(n).padStart(2, '0');
     const localDateStr = `${startDate.getFullYear()}-${pad(startDate.getMonth() + 1)}-${pad(startDate.getDate())}`;
     const hours = String(startDate.getHours()).padStart(2, '0');
@@ -172,6 +237,22 @@ export default function ScheduleCalendar() {
     setIsModalOpen(true);
   };
 
+  const openRosterModal = async (cls: UIClassSession) => {
+    setSelectedClassTitle(`${cls.name} - ${cls.formattedTime}`);
+    setIsRosterModalOpen(true);
+    setIsRosterLoading(true);
+    setRosterData([]);
+
+    try {
+      const response = await api.get(`/operations/classes/${cls.id}/roster`);
+      setRosterData(response.data);
+    } catch (err) {
+      console.error("Error obteniendo la lista de asistencia:", err);
+    } finally {
+      setIsRosterLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (formData.date && repeatConfig.isRecurring && repeatConfig.days.length === 0) {
       const [year, month, day] = formData.date.split('-').map(Number);
@@ -181,7 +262,7 @@ export default function ScheduleCalendar() {
   }, [formData.date, repeatConfig.isRecurring]);
 
   // ==========================================
-  // 2. CREAR O ACTUALIZAR CLASE (INCLUYE REPETICIÓN)
+  // CREAR O ACTUALIZAR CLASE (POST / PUT)
   // ==========================================
   const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,7 +271,6 @@ export default function ScheduleCalendar() {
 
     try {
       if (editingClassId) {
-        // --- MODO EDICIÓN (Un solo PUT) ---
         const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
         const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
 
@@ -198,18 +278,16 @@ export default function ScheduleCalendar() {
           name: formData.name,
           capacity: Number(formData.capacity),
           coach_id: formData.coach_id,
-          // FIX HORARIO: Usar toLocalISOString en vez de .toISOString()
           start_time: toLocalISOString(startDateTime),
           end_time: toLocalISOString(endDateTime),
           room: formData.room || null
         };
 
         await api.put(`/operations/classes/${editingClassId}`, payload);
+        setSuccessMessage('La clase ha sido actualizada exitosamente.');
 
       } else {
-        // --- MODO CREACIÓN ---
         if (repeatConfig.isRecurring && repeatConfig.days.length > 0) {
-          // Creación Múltiple (Batch)
           const [year, month, day] = formData.date.split('-').map(Number);
           const datesToCreate: string[] = [];
           const totalDays = repeatConfig.weeks * 7;
@@ -232,7 +310,6 @@ export default function ScheduleCalendar() {
               name: formData.name,
               capacity: Number(formData.capacity),
               coach_id: formData.coach_id,
-              // FIX HORARIO
               start_time: toLocalISOString(startDateTime),
               end_time: toLocalISOString(endDateTime),
               room: formData.room || null
@@ -241,9 +318,9 @@ export default function ScheduleCalendar() {
           });
 
           await Promise.all(promises);
+          setSuccessMessage('Los horarios recurrentes han sido creados exitosamente.');
 
         } else {
-          // Creación Única (1 clase)
           const startDateTime = new Date(`${formData.date}T${formData.time}:00`);
           const endDateTime = new Date(startDateTime.getTime() + formData.duration * 60000);
 
@@ -251,13 +328,13 @@ export default function ScheduleCalendar() {
             name: formData.name,
             capacity: Number(formData.capacity),
             coach_id: formData.coach_id,
-            // FIX HORARIO
             start_time: toLocalISOString(startDateTime),
             end_time: toLocalISOString(endDateTime),
             room: formData.room || null
           };
 
           await api.post('/operations/classes', payload);
+          setSuccessMessage('El horario ha sido guardado exitosamente.');
         }
       }
       
@@ -280,17 +357,23 @@ export default function ScheduleCalendar() {
   };
 
   // ==========================================
-  // 3. ELIMINAR CLASE
+  // ELIMINACIÓN CON MODAL
   // ==========================================
-  const handleDeleteClass = async (classId: string) => {
-    if (window.confirm("¿Estás seguro de cancelar y eliminar esta clase? Esta acción es irreversible.")) {
-      try {
-        await api.delete(`/operations/classes/${classId}`);
-        await fetchData(); 
-      } catch (err: any) {
-        console.error(err);
-        alert(err.response?.data?.detail || "No se pudo cancelar la clase.");
-      }
+  const confirmDeleteClass = (classId: string) => {
+    setClassToDelete(classId);
+    setIsDeleteModalOpen(true);
+  };
+
+  const executeDeleteClass = async () => {
+    if (!classToDelete) return;
+    try {
+      await api.delete(`/operations/classes/${classToDelete}`);
+      setIsDeleteModalOpen(false);
+      setClassToDelete(null);
+      await fetchData(); 
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || "No se pudo cancelar la clase.");
     }
   };
 
@@ -338,7 +421,7 @@ export default function ScheduleCalendar() {
           </div>
         </div>
 
-        {error && !isModalOpen && (
+        {error && !isModalOpen && !isDeleteModalOpen && !isRosterModalOpen && !isAddClientModalOpen && (
           <div className="mb-6 rounded-lg bg-gray-50 border-l-4 border-red-500 p-4 text-sm font-medium text-black">
             {error}
           </div>
@@ -390,8 +473,15 @@ export default function ScheduleCalendar() {
                               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-gray-500">
                                 <span className="uppercase tracking-wider">{cls.room || 'Sin Sala'}</span>
                                 <span>Coach: {cls.instructorName}</span>
-                                <span>Plazas ocupadas {cls.booked}/{cls.capacity}</span>
-                                <span>Asistencia {0}/{cls.capacity}</span>
+                                
+                                {/* BOTÓN DE ASISTENCIA INTERACTIVO */}
+                                <button 
+                                  onClick={() => openRosterModal(cls)}
+                                  className="text-black hover:underline transition-colors focus:outline-none"
+                                >
+                                  Asistencia <span className="font-bold">{cls.booked}/{cls.capacity}</span>
+                                </button>
+                                
                                 <button className="flex items-center text-black font-bold hover:underline">
                                   <svg className="mr-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -406,7 +496,7 @@ export default function ScheduleCalendar() {
                                 Detalle
                               </button>
                               <button 
-                                onClick={() => handleDeleteClass(cls.id)}
+                                onClick={() => confirmDeleteClass(cls.id)}
                                 className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-red-50 hover:text-red-600 transition-colors"
                               >
                                 Cancelar clase
@@ -417,11 +507,12 @@ export default function ScheduleCalendar() {
                           <div className="my-4 h-px w-full bg-gray-200 border-b border-dashed border-gray-300"></div>
                           
                           <div className="flex flex-wrap gap-2">
-                            <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
-                              Apuntar a otro cliente
-                            </button>
-                            <button className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors">
-                              Apuntar invitado
+                            {/* NUEVO BOTÓN APUNTAR CLIENTE */}
+                            <button 
+                              onClick={() => openAddClientModal(cls)}
+                              className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors"
+                            >
+                              Apuntar cliente
                             </button>
                             <button 
                               onClick={() => openEditModal(cls)}
@@ -513,6 +604,62 @@ export default function ScheduleCalendar() {
           </>
         )}
       </div>
+
+      {/* ================= MODAL DE APUNTAR CLIENTE ================= */}
+      {isAddClientModalOpen && classToBook && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-extrabold text-black">Apuntar Cliente</h2>
+                <p className="mt-1 text-xs font-bold text-gray-500">
+                  {classToBook.name} ({classToBook.formattedTime})
+                </p>
+              </div>
+              <button onClick={() => setIsAddClientModalOpen(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-black transition">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {error && (
+              <div className="mb-4 rounded-lg bg-red-50 border-l-4 border-red-500 p-3 text-sm font-medium text-red-800 break-words">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleBookClient} className="space-y-5">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-black">Seleccionar Atleta</label>
+                <select 
+                  required
+                  value={selectedAthleteId} 
+                  onChange={(e) => setSelectedAthleteId(e.target.value)} 
+                  className="block w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-black focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                >
+                  <option value="" disabled>Buscar cliente...</option>
+                  {athletes.map(athlete => (
+                    <option key={athlete.id} value={athlete.id}>
+                      {athlete.first_name} {athlete.last_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs text-gray-500">
+                  Solo se muestran usuarios con rol de Atleta y tarifa activa en el sistema.
+                </p>
+              </div>
+
+              <div className="mt-8 flex gap-3">
+                <button type="button" onClick={() => setIsAddClientModalOpen(false)} className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-black transition-colors hover:bg-gray-50">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={isBookingClient || !selectedAthleteId} className="w-full flex justify-center rounded-lg bg-black px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-gray-800 disabled:opacity-50">
+                  {isBookingClient ? 'Añadiendo...' : 'Añadir a la clase'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ================= MODAL DE CREACIÓN / EDICIÓN ================= */}
       {isModalOpen && (
@@ -610,7 +757,6 @@ export default function ScheduleCalendar() {
                 </div>
               </div>
 
-              {/* Lógica de Repetición (Solo visible al crear) */}
               {!editingClassId && (
                 <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
                   <label className="flex cursor-pointer items-center mb-3">
@@ -680,6 +826,80 @@ export default function ScheduleCalendar() {
         </div>
       )}
 
+      {/* ================= MODAL DE LISTA DE ASISTENCIA (ROSTER) ================= */}
+      {isRosterModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+              <div>
+                <h3 className="text-lg font-extrabold text-black">Asistencia</h3>
+                <p className="text-xs font-bold text-gray-500 mt-1">{selectedClassTitle}</p>
+              </div>
+              <button onClick={() => setIsRosterModalOpen(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-200 hover:text-black transition">
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <div className="p-5 overflow-y-auto flex-1">
+              {isRosterLoading ? (
+                <div className="flex justify-center items-center py-10">
+                  <svg className="h-6 w-6 animate-spin text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                </div>
+              ) : rosterData.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-sm font-medium text-gray-500">No hay atletas inscritos todavía.</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {rosterData.map((athlete, index) => (
+                    <li key={athlete.id} className="py-3 flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-black text-xs font-bold text-white">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-black">{athlete.first_name} {athlete.last_name}</p>
+                        <p className="text-xs text-gray-500">{athlete.email}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL DE CONFIRMACIÓN DE ELIMINACIÓN ================= */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50 border border-red-100">
+              <svg className="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="mb-2 text-xl font-extrabold text-black">¿Quieres cancelar la clase?</h3>
+            <p className="mb-6 text-sm text-gray-500">
+              Esta acción eliminará el horario de la cartelera de forma irreversible.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                No
+              </button>
+              <button
+                onClick={executeDeleteClass}
+                className="w-full rounded-lg bg-red-600 px-4 py-3 text-sm font-bold text-white hover:bg-red-700 transition-colors"
+              >
+                Sí
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ================= MODAL DE ÉXITO ================= */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm transition-opacity">
@@ -689,11 +909,9 @@ export default function ScheduleCalendar() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h3 className="mb-2 text-xl font-extrabold text-black">
-              {editingClassId ? '¡Clase Actualizada!' : '¡Clases Creadas!'}
-            </h3>
+            <h3 className="mb-2 text-xl font-extrabold text-black">¡Completado!</h3>
             <p className="mb-6 text-sm text-gray-500">
-              El horario ha sido guardado exitosamente y sincronizado en la cartelera.
+              {successMessage}
             </p>
             <button
               onClick={() => setShowSuccessModal(false)}
@@ -704,6 +922,7 @@ export default function ScheduleCalendar() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
