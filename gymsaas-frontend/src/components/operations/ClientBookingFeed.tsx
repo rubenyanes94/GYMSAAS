@@ -30,6 +30,9 @@ interface UIClass extends ClassSession {
 export default function ClientBookingFeed() {
   const [currentView, setCurrentView] = useState<'feed' | 'detail'>('feed');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  
+  // Estado para saber qué semana estamos renderizando
+  const [referenceDate, setReferenceDate] = useState(new Date()); 
   const [weekDates, setWeekDates] = useState<Date[]>([]);
   
   const [classes, setClasses] = useState<UIClass[]>([]);
@@ -45,14 +48,16 @@ export default function ClientBookingFeed() {
   const [roster, setRoster] = useState<RosterAthlete[]>([]);
   const [isRosterLoading, setIsRosterLoading] = useState(false);
 
-  // Generar la semana actual para el header
+  const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+
+  // Lógica para generar la semana basada en referenceDate
   useEffect(() => {
     const dates = [];
-    const today = new Date();
-    // Ajustar para empezar en Lunes (1) en lugar de Domingo (0)
-    const day = today.getDay() === 0 ? 7 : today.getDay();
-    const diff = today.getDate() - day + 1;
-    const startOfWeek = new Date(today.setDate(diff));
+    const curr = new Date(referenceDate);
+    const day = curr.getDay() === 0 ? 7 : curr.getDay();
+    const diff = curr.getDate() - day + 1;
+    const startOfWeek = new Date(curr.setDate(diff));
 
     for (let i = 0; i < 7; i++) {
       const nextDate = new Date(startOfWeek);
@@ -60,8 +65,20 @@ export default function ClientBookingFeed() {
       dates.push(nextDate);
     }
     setWeekDates(dates);
-    setSelectedDate(new Date()); // Volver a poner el día actual
-  }, []);
+  }, [referenceDate]);
+
+  // Funciones para navegar entre semanas
+  const handlePrevWeek = () => {
+    const prev = new Date(referenceDate);
+    prev.setDate(prev.getDate() - 7);
+    setReferenceDate(prev);
+  };
+
+  const handleNextWeek = () => {
+    const next = new Date(referenceDate);
+    next.setDate(next.getDate() + 7);
+    setReferenceDate(next);
+  };
 
   // Simulación de fetch de clases del backend
   const fetchClasses = async (date: Date) => {
@@ -109,7 +126,6 @@ export default function ClientBookingFeed() {
     if (!selectedClass) return;
     
     // Aquí iría el POST real a /operations/bookings/reserve
-    // await api.post('/operations/bookings/reserve', { class_id: selectedClass.id, user_id: '...' });
     
     setClasses(prev => prev.map(c => 
       c.id === selectedClass.id ? { ...c, hasBooked: true, available_spots: c.available_spots - 1 } : c
@@ -148,7 +164,6 @@ export default function ClientBookingFeed() {
       setRoster(response.data);
     } catch (error) {
       console.error("Error al cargar roster", error);
-      // Fallback simulado para ver la UI
       setRoster([{ id: '1', first_name: 'Ruben', last_name: 'Yanes', email: 'ruben@example.com' }]);
     } finally {
       setIsRosterLoading(false);
@@ -159,9 +174,6 @@ export default function ClientBookingFeed() {
     const date = new Date(isoString);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   };
-
-  const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-  const monthNames = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
 
   // ==========================================
   // RENDER: VISTA DE DETALLE
@@ -206,7 +218,6 @@ export default function ClientBookingFeed() {
               {roster.map((athlete) => (
                 <li key={athlete.id} className="flex items-center gap-4">
                   <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-sm font-bold text-gray-600 overflow-hidden">
-                    {/* Placeholder para la foto de perfil */}
                     {athlete.first_name.charAt(0)}{athlete.last_name.charAt(0)}
                   </div>
                   <span className="text-base font-bold text-black">{athlete.first_name} {athlete.last_name}</span>
@@ -225,7 +236,7 @@ export default function ClientBookingFeed() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative pb-20">
       
-      {/* HEADER AZUL TIPO APP */}
+      {/* HEADER TIPO APP */}
       <header className="bg-black text-white px-4 py-4 flex items-center justify-between shadow-sm z-10 relative">
         <button className="focus:outline-none">
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -237,22 +248,40 @@ export default function ClientBookingFeed() {
         </div>
       </header>
 
-      {/* SELECTOR DE DÍAS (STRIP) */}
+      {/* SELECTOR DE DÍAS (STRIP) CON NAVEGACIÓN */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-0">
-        <div className="flex justify-between px-2 py-3 max-w-md mx-auto">
+        <div className="flex items-center justify-between px-4 pt-3 pb-1 max-w-md mx-auto">
+          <button onClick={handlePrevWeek} className="p-1 text-gray-400 hover:text-black transition-colors focus:outline-none">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+          </button>
+          <span className="text-xs font-black text-black tracking-widest uppercase">
+            {weekDates.length > 0 ? `${monthNames[weekDates[0].getMonth()]} ${weekDates[0].getFullYear()}` : ''}
+          </span>
+          <button onClick={handleNextWeek} className="p-1 text-gray-400 hover:text-black transition-colors focus:outline-none">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+          </button>
+        </div>
+
+        <div className="flex justify-between px-4 py-2 max-w-md mx-auto">
           {weekDates.map((date, index) => {
-            const isSelected = date.getDate() === selectedDate.getDate();
-            const isToday = date.getDate() === new Date().getDate();
+            const isSelected = date.toDateString() === selectedDate.toDateString();
+            const isToday = date.toDateString() === new Date().toDateString();
+            
             return (
               <div 
                 key={index} 
                 onClick={() => setSelectedDate(date)}
-                className="flex flex-col items-center cursor-pointer min-w-[40px]"
+                className="flex flex-col items-center cursor-pointer min-w-[40px] group"
               >
-                {index === 0 && <span className="text-[10px] font-bold text-gray-400 absolute top-14 left-4">{monthNames[date.getMonth()]}</span>}
-                <span className="text-xs font-medium text-gray-500 mb-1">{dayNames[index]}</span>
+                <span className={`text-[10px] font-bold mb-1.5 transition-colors ${
+                  isToday ? 'text-black' : 'text-gray-400 group-hover:text-black'
+                }`}>
+                  {dayNames[index]}
+                </span>
                 <div className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold transition-colors ${
-                  isSelected ? 'bg-black text-white' : 'text-black hover:bg-gray-100'
+                  isSelected ? 'bg-black text-white shadow-md' : 
+                  isToday ? 'border-2 border-black text-black' : 
+                  'text-black hover:bg-gray-100'
                 }`}>
                   {date.getDate()}
                 </div>
@@ -299,7 +328,6 @@ export default function ClientBookingFeed() {
                     <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Cancelado</span>
                   ) : cls.hasBooked ? (
                     <>
-                      {/* Botón de Check (Cancelar) */}
                       <button 
                         onClick={() => triggerCancel(cls)} 
                         className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center text-black hover:bg-gray-100 transition"
@@ -308,8 +336,6 @@ export default function ClientBookingFeed() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                         </svg>
                       </button>
-                      
-                      {/* Contador de capacidad (AHORA VISIBLE AL RESERVAR) */}
                       <div className="flex items-center text-xs text-gray-500 font-bold mt-1.5">
                         <svg className="w-3.5 h-3.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
@@ -319,15 +345,12 @@ export default function ClientBookingFeed() {
                     </>
                   ) : (
                     <>
-                      {/* Botón Reservar */}
                       <button 
                         onClick={() => triggerReserve(cls)} 
                         className="text-sm font-black text-black tracking-wider hover:underline"
                       >
                         RESERVAR
                       </button>
-                      
-                      {/* Contador de capacidad */}
                       <div className="flex items-center text-xs text-gray-500 font-bold mt-1">
                         <svg className="w-3.5 h-3.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
