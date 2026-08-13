@@ -13,7 +13,8 @@ import {
   faUser, 
   faBars,
   faFire,
-  faStopwatch
+  faStopwatch,
+  faTrophy
 } from '@fortawesome/free-solid-svg-icons';
 
 export default function Home() {
@@ -180,15 +181,16 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ================= BOTTOM NAVIGATION (MOCK) ================= */}
+      {/* ================= BOTTOM NAVIGATION ================= */}
       <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around py-2 pb-6 z-30 shadow-[0_-2px_15px_rgba(0,0,0,0.05)]">
-        <button className="flex flex-col items-center text-[#2196F3]">
+        <button className="flex flex-col items-center text-black">
           <FontAwesomeIcon icon={faHome} className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-bold">Inicio</span>
         </button>
-        <button onClick={() => navigate('/client/reservas')} className="flex flex-col items-center text-gray-400 hover:text-black transition-colors">
-          <FontAwesomeIcon icon={faClipboardList} className="w-5 h-5 mb-1" />
-          <span className="text-[10px] font-bold">WOD</span>
+        {/* Nuevo botón PRs */}
+        <button onClick={() => navigate('/client/prs')} className="flex flex-col items-center text-gray-400 hover:text-black transition-colors">
+          <FontAwesomeIcon icon={faTrophy} className="w-5 h-5 mb-1" />
+          <span className="text-[10px] font-bold">PRs</span>
         </button>
         <button className="flex flex-col items-center text-gray-400 hover:text-black transition-colors">
           <FontAwesomeIcon icon={faUser} className="w-5 h-5 mb-1" />

@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
+import PersonalRecords from './pages/PersonalRecords.tsx';
 // 2. Páginas Administrativas y Operativas
 import DashboardAdmin from './pages/DashboardAdmin';
 import ScheduleCalendar from './components/operations/ScheduleCalendar';
@@ -32,6 +33,7 @@ function App() {
         {/* ========================================== */}
         <Route path="/client/reservas" element={<ClientBookingFeed />} />
         <Route path="/home" element={<Home />} />
+        <Route path="/client/prs" element={<PersonalRecords />} />
 
         {/* ========================================== */}
         {/* RUTAS ADMINISTRATIVAS (Con Menú Lateral)   */}
