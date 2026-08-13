@@ -153,16 +153,14 @@ async def assign_subscription_to_athlete(
         subscription.plan_id = plan.id
         subscription.status = "ACTIVE"
         subscription.current_weekly_credits = initial_credits
-        subscription.starts_at = now_caracas
         subscription.renews_at = expiration_date
     else:
-        # Creación de nueva suscripción
+        # Creación de nueva suscripción (SIN starts_at)
         subscription = UserSubscription(
             user_id=sub_in.user_id,
             plan_id=plan.id,
             status="ACTIVE",
             current_weekly_credits=initial_credits,
-            starts_at=now_caracas,
             renews_at=expiration_date
         )
         db.add(subscription)
