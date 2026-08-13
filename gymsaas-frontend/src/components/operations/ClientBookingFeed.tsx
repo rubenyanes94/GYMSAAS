@@ -24,6 +24,7 @@ interface RosterAthlete {
 // Interfaz extendida para manejar el estado del usuario en la UI temporalmente
 interface UIClass extends ClassSession {
   hasBooked: boolean;
+  isWaitlisted: boolean;
   isCancelled: boolean;
 }
 
@@ -41,8 +42,12 @@ export default function ClientBookingFeed() {
   // Estados para modales y notificaciones
   const [selectedClass, setSelectedClass] = useState<UIClass | null>(null);
   const [isReserveModalOpen, setIsReserveModalOpen] = useState(false);
+  const [isWaitlistModalOpen, setIsWaitlistModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<{title: string, subtitle: string} | null>(null);
+  
+  // Estado para la alerta de 22 horas
+  const [showEarlyWarning, setShowEarlyWarning] = useState(false);
 
   // Estados para la vista de detalle
   const [roster, setRoster] = useState<RosterAthlete[]>([]);
@@ -84,16 +89,15 @@ export default function ClientBookingFeed() {
   const fetchClasses = async (date: Date) => {
     setIsLoading(true);
     try {
-      // Formatear fecha a YYYY-MM-DD para el endpoint
       const pad = (n: number) => String(n).padStart(2, '0');
       const dateStr = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
       
       const response = await api.get(`/operations/classes?filter_date=${dateStr}`);
       
-      // Mapeamos y añadimos los estados locales para simular si el usuario reservó
       const formattedClasses: UIClass[] = response.data.map((cls: ClassSession) => ({
         ...cls,
         hasBooked: false, 
+        isWaitlisted: false,
         isCancelled: false
       }));
       
@@ -112,9 +116,26 @@ export default function ClientBookingFeed() {
   // ==========================================
   // FLUJO DE RESERVAS Y CANCELACIONES
   // ==========================================
-  const triggerReserve = (cls: UIClass) => {
+  const triggerAction = (cls: UIClass) => {
+    // 1. Calcular diferencia de horas
+    const now = new Date();
+    const classStart = new Date(cls.start_time);
+    const hoursUntilClass = (classStart.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+    // 2. Si falta más de 22 horas, mostramos la alerta y bloqueamos
+    if (hoursUntilClass > 22) {
+      setShowEarlyWarning(true);
+      setTimeout(() => setShowEarlyWarning(false), 3500); 
+      return; 
+    }
+
+    // 3. Si está en rango, continuamos el flujo normal
     setSelectedClass(cls);
-    setIsReserveModalOpen(true);
+    if (cls.available_spots === 0) {
+      setIsWaitlistModalOpen(true);
+    } else {
+      setIsReserveModalOpen(true);
+    }
   };
 
   const triggerCancel = (cls: UIClass) => {
@@ -128,21 +149,38 @@ export default function ClientBookingFeed() {
     // Aquí iría el POST real a /operations/bookings/reserve
     
     setClasses(prev => prev.map(c => 
-      c.id === selectedClass.id ? { ...c, hasBooked: true, available_spots: c.available_spots - 1 } : c
+      c.id === selectedClass.id ? { ...c, hasBooked: true, available_spots: Math.max(0, c.available_spots - 1) } : c
     ));
     
     setIsReserveModalOpen(false);
     showToast('¡Clase reservada!', 'Toca aquí para añadir al calendario');
   };
 
+  const confirmWaitlist = async () => {
+    if (!selectedClass) return;
+    
+    // Simulación: El backend responde con status "WAITLISTED"
+    setClasses(prev => prev.map(c => 
+      c.id === selectedClass.id ? { ...c, isWaitlisted: true, waitlist_count: c.waitlist_count + 1 } : c
+    ));
+    
+    setIsWaitlistModalOpen(false);
+    showToast('Estás en Lista de Espera', 'Te notificaremos si se libera un cupo');
+  };
+
   const confirmCancellation = async () => {
     if (!selectedClass) return;
 
-    // Aquí iría el POST real a /operations/bookings/.../cancel
-    
-    setClasses(prev => prev.map(c => 
-      c.id === selectedClass.id ? { ...c, hasBooked: false, available_spots: c.available_spots + 1 } : c
-    ));
+    setClasses(prev => prev.map(c => {
+      if (c.id === selectedClass.id) {
+        if (c.isWaitlisted) {
+          return { ...c, isWaitlisted: false, waitlist_count: Math.max(0, c.waitlist_count - 1) };
+        } else {
+          return { ...c, hasBooked: false, available_spots: c.available_spots + 1 };
+        }
+      }
+      return c;
+    }));
     
     setIsCancelModalOpen(false);
   };
@@ -250,7 +288,7 @@ export default function ClientBookingFeed() {
 
       {/* SELECTOR DE DÍAS (STRIP) CON NAVEGACIÓN */}
       <div className="bg-white border-b border-gray-200 shadow-sm z-0">
-        <div className="flex items-center justify-between px-4 pt-3 pb-1 max-w-md mx-auto">
+        <div className="flex items-center justify-between px-4 sm:px-10 md:px-20 lg:px-32 pt-3 pb-1 w-full">
           <button onClick={handlePrevWeek} className="p-1 text-gray-400 hover:text-black transition-colors focus:outline-none">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
           </button>
@@ -262,7 +300,7 @@ export default function ClientBookingFeed() {
           </button>
         </div>
 
-        <div className="flex justify-between px-4 py-2 max-w-md mx-auto">
+        <div className="flex justify-between px-4 sm:px-10 md:px-20 lg:px-32 py-2 w-full">
           {weekDates.map((date, index) => {
             const isSelected = date.toDateString() === selectedDate.toDateString();
             const isToday = date.toDateString() === new Date().toDateString();
@@ -300,12 +338,12 @@ export default function ClientBookingFeed() {
         ) : classes.length === 0 ? (
           <div className="flex flex-col items-center justify-center mt-20 text-gray-400">
             <svg className="w-16 h-16 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            <p className="font-medium">No hay clases este día</p>
+            <p className="font-medium">No hay clases programadas para este día.</p>
           </div>
         ) : (
           <div className="flex flex-col divide-y divide-gray-200">
             {classes.map(cls => (
-              <div key={cls.id} className={`flex items-center p-4 bg-white transition-colors hover:bg-gray-50 ${cls.hasBooked ? 'bg-gray-50' : ''}`}>
+              <div key={cls.id} className={`flex items-center p-4 bg-white transition-colors hover:bg-gray-50 ${(cls.hasBooked || cls.isWaitlisted) ? 'bg-gray-50' : ''}`}>
                 
                 {/* Logo Box */}
                 <div 
@@ -322,12 +360,13 @@ export default function ClientBookingFeed() {
                   <p className="text-xs font-bold text-gray-400 uppercase mt-1">LEVEL CARACAS</p>
                 </div>
 
-                {/* Acción (Reservar / Check) */}
+                {/* Acción (Reservar / Lista Espera / Check) */}
                 <div className="ml-4 flex flex-col items-end justify-center min-w-[80px]">
                   {cls.isCancelled ? (
                     <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Cancelado</span>
                   ) : cls.hasBooked ? (
                     <>
+                      {/* Confirmado: Botón Check Cancelar */}
                       <button 
                         onClick={() => triggerCancel(cls)} 
                         className="w-8 h-8 rounded-full border-2 border-black flex items-center justify-center text-black hover:bg-gray-100 transition"
@@ -343,14 +382,31 @@ export default function ClientBookingFeed() {
                         {cls.capacity - cls.available_spots}/{cls.capacity}
                       </div>
                     </>
+                  ) : cls.isWaitlisted ? (
+                    <>
+                      {/* En Espera: Botón Reloj Cancelar */}
+                      <button 
+                        onClick={() => triggerCancel(cls)} 
+                        className="w-8 h-8 rounded-full border-2 border-gray-400 border-dashed flex items-center justify-center text-gray-500 hover:bg-gray-100 transition"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                      <div className="flex items-center text-[10px] text-gray-500 font-bold mt-1.5 uppercase">
+                        EN COLA ({cls.waitlist_count})
+                      </div>
+                    </>
                   ) : (
                     <>
+                      {/* Disponibilidad: Reservar o Lista Espera */}
                       <button 
-                        onClick={() => triggerReserve(cls)} 
-                        className="text-sm font-black text-black tracking-wider hover:underline"
+                        onClick={() => triggerAction(cls)} 
+                        className={`text-sm font-black tracking-wider hover:underline ${cls.available_spots === 0 ? 'text-gray-500' : 'text-black'}`}
                       >
-                        RESERVAR
+                        {cls.available_spots === 0 ? 'LISTA ESPERA' : 'RESERVAR'}
                       </button>
+                      
                       <div className="flex items-center text-xs text-gray-500 font-bold mt-1">
                         <svg className="w-3.5 h-3.5 mr-1" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
@@ -366,7 +422,7 @@ export default function ClientBookingFeed() {
         )}
       </div>
 
-      {/* BOTTOM NAVIGATION (MOCK) */}
+      {/* BOTTOM NAVIGATION */}
       <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 flex justify-around py-2 pb-6 z-10">
         <button className="flex flex-col items-center text-black"><svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg><span className="text-[10px] font-bold mt-1">Inicio</span></button>
         <button className="flex flex-col items-center text-gray-400 hover:text-black"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg><span className="text-[10px] font-bold mt-1">WOD</span></button>
@@ -376,7 +432,18 @@ export default function ClientBookingFeed() {
 
       {/* ================= MODALES ================= */}
       
-      {/* Modal Confirmar Reserva */}
+      {/* Alerta de 22 horas */}
+      {showEarlyWarning && (
+        <div className="fixed top-1/3 left-1/2 transform -translate-x-1/2 z-50 w-11/12 max-w-sm animate-fade-in-up">
+          <div className="bg-[#111] text-white rounded-3xl p-6 shadow-2xl text-center">
+            <p className="font-medium text-[15px] leading-snug">
+              No puedes reservar clases con más de 22 horas de antelación
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmar Reserva Regular */}
       {isReserveModalOpen && selectedClass && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
@@ -396,17 +463,42 @@ export default function ClientBookingFeed() {
         </div>
       )}
 
+      {/* Modal Confirmar Lista de Espera */}
+      {isWaitlistModalOpen && selectedClass && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
+            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-extrabold text-black mb-2">Lista de Espera</h3>
+            <p className="text-gray-500 text-sm font-medium mb-6">
+              La clase está llena. ¿Quieres entrar a la lista de espera? Se descontará tu crédito y se te devolverá si no consigues plaza.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={confirmWaitlist} className="flex-1 bg-black text-white font-bold py-3.5 rounded-2xl hover:bg-gray-800 transition">
+                Entrar a la cola
+              </button>
+              <button onClick={() => setIsWaitlistModalOpen(false)} className="flex-1 bg-gray-100 text-black font-bold py-3.5 rounded-2xl hover:bg-gray-200 transition">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Confirmar Cancelación */}
       {isCancelModalOpen && selectedClass && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl">
-            <h3 className="text-xl font-extrabold text-black mb-2">Cancelar reserva</h3>
+            <h3 className="text-xl font-extrabold text-black mb-2">Cancelar {selectedClass.isWaitlisted ? 'espera' : 'reserva'}</h3>
             <p className="text-gray-500 text-sm font-medium mb-6">
-              ¿Estás seguro de que quieres cancelar esta clase?
+              ¿Estás seguro de que quieres cancelar {selectedClass.isWaitlisted ? 'tu lugar en la lista de espera' : 'esta clase'}?
             </p>
             <div className="flex flex-col gap-3">
               <button onClick={confirmCancellation} className="w-full border border-gray-300 text-black font-bold py-3.5 rounded-2xl hover:bg-gray-50 transition">
-                Cancelar reserva
+                Cancelar {selectedClass.isWaitlisted ? 'espera' : 'reserva'}
               </button>
               <button onClick={() => setIsCancelModalOpen(false)} className="w-full bg-black text-white font-bold py-3.5 rounded-2xl hover:bg-gray-800 transition">
                 No cancelar
@@ -416,12 +508,15 @@ export default function ClientBookingFeed() {
         </div>
       )}
 
-      {/* Toast Notification (Bottom) */}
+      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50 w-11/12 max-w-sm animate-fade-in-up">
           <div className="bg-[#1a1a1a] text-white rounded-2xl p-4 flex items-center shadow-2xl border border-gray-800">
             <div className="bg-white/10 p-2 rounded-lg mr-4">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11v4m0 0v4m0-4h4m-4 0H8" /></svg>
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11v4m0 0v4m0-4h4m-4 0H8" />
+              </svg>
             </div>
             <div>
               <h4 className="font-extrabold text-base">{toastMessage.title}</h4>
