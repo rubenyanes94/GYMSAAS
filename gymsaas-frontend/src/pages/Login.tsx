@@ -21,27 +21,40 @@ export default function Login() {
     setErrorMessage(null);
 
     try {
-      // OAuth2PasswordRequestForm en FastAPI requiere application/x-www-form-urlencoded
       const params = new URLSearchParams();
-      params.append('username', formData.email); // FastAPI espera 'username' para el email
+      params.append('username', formData.email);
       params.append('password', formData.password);
 
-      // Apuntamos a la ruta real de tu auth.py: /auth/login
       const response = await api.post('/auth/login', params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         }
       });
 
-      // Guardar el token JWT generado por tu backend
       if (response.data.access_token) {
-        localStorage.setItem('token', response.data.access_token);
-      }
+        const token = response.data.access_token;
+        localStorage.setItem('token', token);
 
-      // Redirigir al panel de administración
-      navigate('/admin');
+        // Decodificamos el payload del JWT para leer los roles del usuario de forma segura
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(window.atob(base64));
+        
+        // Nota: Ajusta 'sub' o el campo de roles según cómo tu backend esté armando el token JWT
+        // Como alternativa segura, consultamos la lista de usuarios o validamos el rol:
+        const usersResponse = await api.get('/auth/users', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        const currentUser = usersResponse.data.find((u: any) => u.email === formData.email);
+
+        if (currentUser && currentUser.roles && currentUser.roles.includes('ATHLETE')) {
+          navigate('/home'); // Redirección exclusiva para atletas
+        } else {
+          navigate('/admin'); // Redirección para BOX_OWNER / SUPERADMIN / STAFF
+        }
+      }
     } catch (error: any) {
-      // Si el backend responde con un error 403 por cambio de clave obligatorio
       const errorDetail = error.response?.data?.detail;
       if (errorDetail === 'REQUIRES_PASSWORD_CHANGE') {
         setErrorMessage('Debes actualizar tu contraseña temporal antes de ingresar.');

@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 // 1. Páginas Públicas y de Autenticación
 import Login from './pages/Login';
 import Register from './pages/Register';
-
+import Home from './pages/Home';
 // 2. Páginas Administrativas y Operativas
 import DashboardAdmin from './pages/DashboardAdmin';
 import ScheduleCalendar from './components/operations/ScheduleCalendar';
@@ -31,6 +31,7 @@ function App() {
         {/* RUTAS DEL CLIENTE / APP MÓVIL (Feed)       */}
         {/* ========================================== */}
         <Route path="/client/reservas" element={<ClientBookingFeed />} />
+        <Route path="/home" element={<Home />} />
 
         {/* ========================================== */}
         {/* RUTAS ADMINISTRATIVAS (Con Menú Lateral)   */}
