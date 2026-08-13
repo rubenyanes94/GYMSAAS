@@ -1,111 +1,152 @@
 import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 
-export default function Login({ onLoginSuccess, onSwitchToRegister }: { onLoginSuccess: () => void; onSwitchToRegister?: () => void }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+export default function Login() {
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState({
+    email: '',
+    password: ''
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    setIsLoading(true);
+    setErrorMessage(null);
 
     try {
-      const formData = new URLSearchParams();
-      formData.append('username', email);
-      formData.append('password', password);
+      // OAuth2PasswordRequestForm en FastAPI requiere application/x-www-form-urlencoded
+      const params = new URLSearchParams();
+      params.append('username', formData.email); // FastAPI espera 'username' para el email
+      params.append('password', formData.password);
 
-      const response = await api.post('/auth/login', formData, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      // Apuntamos a la ruta real de tu auth.py: /auth/login
+      const response = await api.post('/auth/login', params, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
       });
 
-      localStorage.setItem('access_token', response.data.access_token);
-      setLoading(false);
-      onLoginSuccess();
-    } catch (err: any) {
-      setLoading(false);
-      setError(err.response?.data?.detail || 'Error al iniciar sesión. Verifica tus credenciales.');
+      // Guardar el token JWT generado por tu backend
+      if (response.data.access_token) {
+        localStorage.setItem('token', response.data.access_token);
+      }
+
+      // Redirigir al panel de administración
+      navigate('/admin');
+    } catch (error: any) {
+      // Si el backend responde con un error 403 por cambio de clave obligatorio
+      const errorDetail = error.response?.data?.detail;
+      if (errorDetail === 'REQUIRES_PASSWORD_CHANGE') {
+        setErrorMessage('Debes actualizar tu contraseña temporal antes de ingresar.');
+      } else {
+        setErrorMessage(errorDetail || 'Correo electrónico o contraseña incorrectos.');
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-extrabold tracking-tight text-black">
-          GYMSAAS
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Bienvenido de vuelta.
-        </p>
-      </div>
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-between font-sans">
+      
+      {/* NAVBAR */}
+      <header className="w-full bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center space-x-2">
+          <span className="text-xl font-extrabold tracking-tight text-black">LEVEL</span>
+          <span className="text-xs font-bold bg-black text-white px-2 py-0.5 rounded-full uppercase tracking-wider">SaaS</span>
+        </div>
+        <div>
+          <Link 
+            to="/register" 
+            className="text-sm font-bold text-black bg-gray-100 hover:bg-black hover:text-white px-4 py-2 rounded-xl transition-colors"
+          >
+            Registrarse
+          </Link>
+        </div>
+      </header>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white px-4 py-8 sm:rounded-xl sm:border sm:border-gray-200 sm:px-10 sm:shadow-sm">
-          {error && (
-            <div className="mb-6 rounded-lg bg-gray-50 border-l-4 border-black p-4 text-sm text-black">
-              <p className="font-medium">{error}</p>
+      {/* FORMULARIO */}
+      <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-extrabold text-black tracking-tight">GYMSAAS</h1>
+          <p className="text-sm text-gray-500 font-medium mt-1">Bienvenido de vuelta.</p>
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-3xl p-8 w-full max-w-md shadow-sm">
+          {errorMessage && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm font-bold rounded-2xl text-center">
+              {errorMessage}
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-6">
+          <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-semibold text-black mb-1.5">
-                Correo Electrónico
-              </label>
-              <input
-                type="email"
+              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Correo Electrónico</label>
+              <input 
+                type="email" 
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="block w-full appearance-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-black placeholder-gray-400 focus:border-black focus:outline-none focus:ring-2 focus:ring-black transition-colors"
-                placeholder="atleta@gymsaas.com"
+                className="w-full bg-gray-50 border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition"
+                placeholder="nombre@ejemplo.com"
               />
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-semibold text-black">
-                  Contraseña
-                </label>
-                <a href="#" className="text-sm font-medium text-gray-500 hover:text-black transition-colors">
-                  ¿Olvidaste tu clave?
-                </a>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-xs font-bold text-gray-700 uppercase tracking-wide">Contraseña</label>
+                <a href="#forgot" className="text-xs font-bold text-gray-400 hover:text-black">¿Olvidaste tu clave?</a>
               </div>
-              <input
-                type="password"
+              <input 
+                type="password" 
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
                 required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="block w-full appearance-none rounded-lg border border-gray-300 bg-white px-4 py-3 text-black placeholder-gray-400 focus:border-black focus:outline-none focus:ring-2 focus:ring-black transition-colors"
+                className="w-full bg-gray-50 border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition"
                 placeholder="••••••••"
               />
             </div>
 
-            <button
+            <button 
               type="submit"
-              disabled={loading}
-              className="flex w-full justify-center rounded-lg bg-black px-4 py-3.5 text-sm font-bold text-white shadow-sm hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 transition-all active:scale-[0.98] disabled:opacity-50"
+              disabled={isLoading}
+              className="w-full bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-md disabled:opacity-50 mt-2 flex justify-center items-center"
             >
-              {loading ? 'Verificando...' : 'Iniciar Sesión'}
+              {isLoading ? (
+                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              ) : (
+                'Iniciar Sesión'
+              )}
             </button>
           </form>
 
-          {onSwitchToRegister && (
-            <div className="mt-8 text-center text-sm">
-              <span className="text-gray-500">¿No tienes una cuenta? </span>
-              <button
-                type="button"
-                onClick={onSwitchToRegister}
-                className="font-bold text-black hover:underline"
-              >
-                Regístrate ahora
-              </button>
-            </div>
-          )}
+          <div className="mt-6 pt-6 border-t border-gray-100 text-center">
+            <p className="text-sm text-gray-500 font-medium">
+              ¿No tienes una cuenta?{' '}
+              <Link to="/register" className="font-bold text-black hover:underline">
+                Regístrate aquí
+              </Link>
+            </p>
+          </div>
         </div>
-      </div>
+      </main>
+
+      {/* FOOTER */}
+      <footer className="w-full bg-white border-t border-gray-200 py-6 px-6 text-center">
+        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+          © {new Date().getFullYear()} LEVEL GYMSAAS — Todos los derechos reservados.
+        </p>
+      </footer>
+
     </div>
   );
 }
