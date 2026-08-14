@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
 import PersonalRecords from './pages/PersonalRecords.tsx';
+import MovementDetail from './pages/MovementDetail';
 // 2. Páginas Administrativas y Operativas
 import DashboardAdmin from './pages/DashboardAdmin';
 import ScheduleCalendar from './components/operations/ScheduleCalendar';
@@ -34,6 +35,7 @@ function App() {
         <Route path="/client/reservas" element={<ClientBookingFeed />} />
         <Route path="/home" element={<Home />} />
         <Route path="/client/prs" element={<PersonalRecords />} />
+        <Route path="/client/prs/:movementId" element={<MovementDetail />} />
 
         {/* ========================================== */}
         {/* RUTAS ADMINISTRATIVAS (Con Menú Lateral)   */}
