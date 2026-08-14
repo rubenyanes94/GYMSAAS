@@ -11,6 +11,7 @@ import DashboardAdmin from './pages/DashboardAdmin';
 import ScheduleCalendar from './components/operations/ScheduleCalendar';
 import CashRegister from './components/finances/CashRegister';
 import ClientBookingFeed from './components/operations/ClientBookingFeed';
+import Profile from './pages/Profile';
 
 // 3. Layout Principal del Panel
 import AdminLayout from './components/layouts/AdminLayout';
@@ -36,6 +37,7 @@ function App() {
         <Route path="/home" element={<Home />} />
         <Route path="/client/prs" element={<PersonalRecords />} />
         <Route path="/client/prs/:movementId" element={<MovementDetail />} />
+        <Route path="/client/perfil" element={<Profile />} />
 
         {/* ========================================== */}
         {/* RUTAS ADMINISTRATIVAS (Con Menú Lateral)   */}

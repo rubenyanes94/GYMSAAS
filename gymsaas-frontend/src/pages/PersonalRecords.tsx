@@ -312,7 +312,7 @@ export default function PersonalRecords() {
           <span className="text-[10px] font-bold">PRs</span>
         </button>
         <button className="flex flex-col items-center text-gray-400 hover:text-black transition-colors">
-          <FontAwesomeIcon icon={faUser} className="w-5 h-5 mb-1" />
+          <FontAwesomeIcon icon={faUser} onClick={() => navigate('/client/perfil')} className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-bold">Perfil</span>
         </button>
         <button className="flex flex-col items-center text-gray-400 hover:text-black transition-colors">
