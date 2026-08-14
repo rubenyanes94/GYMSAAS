@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import api from '../services/api';
 import { 
   faChevronLeft, 
   faCommentDots, 
@@ -26,8 +27,63 @@ import {
 export default function Profile() {
   const navigate = useNavigate();
   
-  // Estado para controlar el modal de opciones del WOD
+  // Estados para la UI y los Datos
   const [showActionMenu, setShowActionMenu] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Efecto para obtener la información del usuario al cargar el perfil
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          navigate('/login');
+          return;
+        }
+
+        // Decodificamos el payload del JWT para obtener el ID del usuario (sub)
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(window.atob(base64));
+        const userId = payload.sub;
+
+        // Consultamos el backend
+        const response = await api.get('/auth/users', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        // Buscamos al usuario que coincida con el ID del token
+        const currentUser = response.data.find((u: any) => u.id === userId);
+        
+        if (currentUser) {
+          setUserData(currentUser);
+        }
+      } catch (error) {
+        console.error("Error al cargar los datos del perfil:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, [navigate]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <svg className="animate-spin h-8 w-8 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+      </div>
+    );
+  }
+
+  // Si userData existe, armamos el nombre, si no, ponemos un fallback
+  const fullName = userData ? `${userData.first_name} ${userData.last_name}` : 'Atleta Desconocido';
+  // Obtenemos el rol principal
+  const primaryRole = userData?.roles?.[0] === 'ATHLETE' ? 'Atleta' : userData?.roles?.[0] || 'Atleta';
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative pb-20">
@@ -54,42 +110,35 @@ export default function Profile() {
         
         {/* ================= PORTADA Y FOTO DE PERFIL ================= */}
         <div className="relative bg-white">
-          {/* Imagen de Portada */}
           <div className="h-40 w-full bg-gray-300 relative overflow-hidden">
             <img 
               src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1470&auto=format&fit=crop" 
               alt="Cover" 
               className="w-full h-full object-cover grayscale opacity-90"
             />
-            {/* Overlay de Seguidores */}
             <div className="absolute top-0 w-full bg-black/60 text-white text-[10px] font-bold flex justify-center gap-6 py-1.5 tracking-widest uppercase">
               <span>16 Seguidores</span>
               <span>11 Siguiendo</span>
             </div>
           </div>
 
-          {/* Foto de perfil superpuesta */}
           <div className="absolute top-24 left-1/2 transform -translate-x-1/2">
-            <div className="w-28 h-28 rounded-full border-4 border-white overflow-hidden bg-gray-200 shadow-md">
-              <img 
-                src="https://images.unsplash.com/photo-1583465551935-77987e9eb64f?q=80&w=1470&auto=format&fit=crop" 
-                alt="Profile" 
-                className="w-full h-full object-cover grayscale"
-              />
+            <div className="w-28 h-28 rounded-full border-4 border-white overflow-hidden bg-gray-200 shadow-md flex items-center justify-center text-3xl font-bold text-gray-400">
+              {/* Si no hay imagen de perfil, mostramos las iniciales */}
+              {userData?.first_name ? userData.first_name.charAt(0).toUpperCase() : 'U'}
             </div>
           </div>
 
-          {/* Info del Atleta (Estandarizada) */}
+          {/* Información Dinámica del Atleta */}
           <div className="pt-14 pb-6 text-center px-4">
-            <h2 className="text-2xl font-black text-black">Ruben Yanes</h2>
+            <h2 className="text-2xl font-black text-black capitalize">{fullName}</h2>
             <div className="flex items-center justify-center gap-1.5 mt-1 text-black font-extrabold text-xs uppercase tracking-wide">
               <FontAwesomeIcon icon={faCheckCircle} className="w-3.5 h-3.5" />
               <span>LEVEL CARACAS</span>
             </div>
             
-            {/* Etiqueta de Rol */}
             <div className="mt-3 inline-block bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest border border-gray-200">
-              Rol: Atleta
+              Rol: {primaryRole}
             </div>
           </div>
 
@@ -110,7 +159,7 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* ================= INNOVACIÓN: ACCESOS RÁPIDOS AMENITIES ================= */}
+        {/* ================= ACCESOS RÁPIDOS AMENITIES ================= */}
         <div className="bg-gray-50 py-5 px-4 border-t border-b border-gray-200 shadow-inner">
           <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Servicios Premium</h3>
           <div className="grid grid-cols-3 gap-3">
@@ -131,17 +180,15 @@ export default function Profile() {
 
         {/* ================= FEED DEL PERFIL ================= */}
         <div className="bg-white mt-2 border-t border-gray-200">
-          
           <div className="p-4 border-b border-gray-100">
-            {/* Cabecera del post */}
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
-                   <img src="https://images.unsplash.com/photo-1583465551935-77987e9eb64f?q=80&w=1470&auto=format&fit=crop" alt="Ruben Yanes" className="grayscale" />
+                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center font-bold text-gray-400">
+                   {userData?.first_name ? userData.first_name.charAt(0).toUpperCase() : 'U'}
                 </div>
                 <div>
-                  <h4 className="text-sm font-extrabold text-black">Ruben Yanes</h4>
-                  <p className="text-xs font-bold text-black">LEVEL <span className="text-gray-400">· Viernes 14 de Agosto</span></p>
+                  <h4 className="text-sm font-extrabold text-black capitalize">{fullName}</h4>
+                  <p className="text-xs font-bold text-black">LEVEL <span className="text-gray-400">· Hoy</span></p>
                 </div>
               </div>
               <button onClick={() => setShowActionMenu(true)} className="text-gray-400 p-2 hover:text-black">
@@ -149,7 +196,6 @@ export default function Profile() {
               </button>
             </div>
 
-            {/* Botones de acción del feed */}
             <div className="flex gap-2 mb-4">
               <button className="bg-black text-white text-[10px] font-extrabold px-3 py-1.5 rounded-md uppercase tracking-wide shadow-sm hover:bg-gray-800 transition-colors">
                 PROGRAMACIÓN PERSONALIZADA
@@ -159,7 +205,6 @@ export default function Profile() {
               </button>
             </div>
 
-            {/* Contenido del WOD */}
             <div className="border border-gray-200 rounded-xl p-4 flex gap-4 bg-gray-50 mb-3 shadow-sm">
               <div className="w-14 h-14 bg-black rounded-full flex flex-col items-center justify-center text-white text-[9px] font-black leading-none text-center tracking-wider shrink-0 shadow-sm mt-1">
                 LEVEL
@@ -174,7 +219,6 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Acciones sociales del WOD */}
             <div className="flex justify-between items-center text-gray-400 pt-2">
               <FontAwesomeIcon icon={faLock} className="w-3.5 h-3.5" />
               <span className="text-[10px] font-bold">14 Agosto</span>
@@ -203,18 +247,28 @@ export default function Profile() {
 
           </div>
         </div>
+        {/* ================= BOTÓN DE CIERRE DE SESIÓN ================= */}
+        <div className="px-4 py-8">
+          <button 
+            onClick={() => {
+              localStorage.removeItem('token');
+              navigate('/login');
+            }}
+            className="w-full py-4 rounded-xl border border-red-200 text-red-600 font-extrabold text-sm hover:bg-red-50 transition-colors flex items-center justify-center gap-2"
+          >
+            <FontAwesomeIcon icon={faLock} />
+            Cerrar Sesión
+          </button>
+        </div>
       </main>
 
       {/* ================= MODAL: MENÚ DE ACCIONES (BOTTOM SHEET) ================= */}
       {showActionMenu && (
         <>
-          {/* Backdrop oscuro */}
           <div 
             className="fixed inset-0 bg-black/40 z-40 transition-opacity"
             onClick={() => setShowActionMenu(false)}
           ></div>
-          
-          {/* Menú deslizable desde abajo */}
           <div className="fixed bottom-0 left-0 w-full bg-white rounded-t-2xl z-50 animate-fade-in-up pb-8 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
             <div className="w-12 h-1 bg-gray-200 rounded-full mx-auto my-3"></div>
             <div className="flex flex-col">
