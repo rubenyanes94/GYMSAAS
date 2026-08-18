@@ -10,7 +10,9 @@ import {
   faPlus,
   faTag,
   faEdit,
-  faTrash
+  faTrash,
+  faUserPlus,
+  faUserTie
 } from '@fortawesome/free-solid-svg-icons';
 
 interface User {
@@ -32,7 +34,6 @@ interface Plan {
   is_unlimited: boolean;
 }
 
-// Nueva interfaz para manejar el formulario permitiendo strings mientras el usuario teclea
 interface PlanFormData {
   name: string;
   category: string;
@@ -42,24 +43,50 @@ interface PlanFormData {
   is_unlimited: boolean;
 }
 
+interface NewUserFormData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  birth_date: string;
+  plan_id: string;
+  payment_method: string;
+  amount_paid: string;
+}
+
+// Interfaz para el formulario de nuevo Staff / Coach
+interface NewStaffFormData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  role: string;
+}
+
 export default function DashboardAdmin() {
   const [users, setUsers] = useState<User[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Estados para el Modal de Planes
+  // Estados Modal Planes
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
-  
-  // Usamos strings iniciales vacíos para permitir escribir cómodamente y 'RECURRING' para que el backend lo acepte
   const [planFormData, setPlanFormData] = useState<PlanFormData>({
-    name: '',
-    category: 'RECURRING',
-    price: '',
-    credits_per_week: '',
-    validity_days: '',
-    is_unlimited: false
+    name: '', category: 'RECURRING', price: '', credits_per_week: '', validity_days: '', is_unlimited: false
+  });
+
+  // Estados Modal Atletas (Clientes)
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [newUserFormData, setNewUserFormData] = useState<NewUserFormData>({
+    first_name: '', last_name: '', email: '', password: '', birth_date: '', plan_id: '', payment_method: 'CASH', amount_paid: ''
+  });
+
+  // Estados Modal Staff/Coach
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [newStaffFormData, setNewStaffFormData] = useState<NewStaffFormData>({
+    first_name: '', last_name: '', email: '', password: '', role: 'COACH'
   });
 
   useEffect(() => {
@@ -87,29 +114,16 @@ export default function DashboardAdmin() {
     fetchDashboardData();
   }, []);
 
+  // ================= PLANES =================
   const handleOpenNewPlanModal = () => {
     setEditingPlan(null);
-    setPlanFormData({
-      name: '',
-      category: 'RECURRING', // Ajustado a RECURRING para que el backend no devuelva error 422
-      price: '', // Inicia vacío para no forzar el "0"
-      credits_per_week: '',
-      validity_days: '',
-      is_unlimited: false
-    });
+    setPlanFormData({ name: '', category: 'RECURRING', price: '', credits_per_week: '', validity_days: '', is_unlimited: false });
     setIsPlanModalOpen(true);
   };
 
   const handleOpenEditPlanModal = (plan: Plan) => {
     setEditingPlan(plan);
-    setPlanFormData({
-      name: plan.name,
-      category: plan.category,
-      price: plan.price ?? '',
-      credits_per_week: plan.credits_per_week,
-      validity_days: plan.validity_days,
-      is_unlimited: plan.is_unlimited
-    });
+    setPlanFormData({ name: plan.name, category: plan.category, price: plan.price ?? '', credits_per_week: plan.credits_per_week, validity_days: plan.validity_days, is_unlimited: plan.is_unlimited });
     setIsPlanModalOpen(true);
   };
 
@@ -118,8 +132,6 @@ export default function DashboardAdmin() {
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
-      
-      // Convertimos los strings tipeados a números justo antes de enviarlos
       const payload = {
         name: planFormData.name,
         category: planFormData.category,
@@ -146,13 +158,99 @@ export default function DashboardAdmin() {
     if(window.confirm('¿Estás seguro de que deseas eliminar este plan?')) {
       try {
         const token = localStorage.getItem('token');
-        await api.delete(`/finances/plans/${id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        await api.delete(`/finances/plans/${id}`, { headers: { Authorization: `Bearer ${token}` } });
         setPlans(plans.filter(p => p.id !== id));
       } catch (err: any) {
-        alert('Error: Es probable que el endpoint DELETE /finances/plans/{id} aún no exista en el backend.');
+        alert('Error: Es probable que el endpoint DELETE aún no exista en el backend.');
       }
+    }
+  };
+
+  // ================= CLIENTES (ATLETAS) =================
+  const handleOpenNewUserModal = () => {
+    setNewUserFormData({ first_name: '', last_name: '', email: '', password: '', birth_date: '', plan_id: '', payment_method: 'CASH', amount_paid: '' });
+    setIsUserModalOpen(true);
+  };
+
+  const handlePlanSelection = (planId: string) => {
+    const selectedPlan = plans.find(p => p.id === planId);
+    setNewUserFormData(prev => ({
+      ...prev,
+      plan_id: planId,
+      amount_paid: selectedPlan?.price ? selectedPlan.price.toString() : ''
+    }));
+  };
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      // 1. Crear el Atleta apuntando a /auth/register
+      const userPayload = {
+        first_name: newUserFormData.first_name,
+        last_name: newUserFormData.last_name,
+        email: newUserFormData.email,
+        password: newUserFormData.password,
+        birth_date: newUserFormData.birth_date ? newUserFormData.birth_date : null
+      };
+      
+      const userRes = await api.post('/auth/register', userPayload, { headers });
+      const newUser = userRes.data;
+
+      // 2. Asignar Suscripción apuntando a /finances/subscriptions
+      if (newUserFormData.plan_id) {
+        const subscriptionPayload = {
+          user_id: newUser.id,
+          plan_id: newUserFormData.plan_id
+        };
+        await api.post('/finances/subscriptions', subscriptionPayload, { headers });
+      }
+
+      setUsers([newUser, ...users]);
+      setIsUserModalOpen(false);
+      alert('¡Cliente registrado y activado con éxito!');
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Error al registrar al cliente. Verifica los datos.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ================= STAFF / COACH =================
+  const handleOpenNewStaffModal = () => {
+    setNewStaffFormData({ first_name: '', last_name: '', email: '', password: '', role: 'COACH' });
+    setIsStaffModalOpen(true);
+  };
+
+  const handleSaveStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      
+      const staffPayload = {
+        first_name: newStaffFormData.first_name,
+        last_name: newStaffFormData.last_name,
+        email: newStaffFormData.email,
+        password: newStaffFormData.password,
+        role: newStaffFormData.role
+      };
+      
+      // Apunta al endpoint de registro interno para Staff
+      const staffRes = await api.post('/auth/register-staff', staffPayload, { headers });
+      const newStaff = staffRes.data;
+
+      setUsers([newStaff, ...users]);
+      setIsStaffModalOpen(false);
+      alert('¡Miembro del equipo registrado con éxito!');
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Error al registrar al staff. Verifica los datos.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -165,9 +263,20 @@ export default function DashboardAdmin() {
           <h2 className="text-2xl font-extrabold text-black tracking-tight">Resumen de Hoy</h2>
           <p className="text-sm font-bold text-gray-500 mt-1">Monitorea la actividad de tu gimnasio en tiempo real.</p>
         </div>
-        <button className="bg-black hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit">
-          <FontAwesomeIcon icon={faPlus} /> Nuevo Cliente
-        </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={handleOpenNewStaffModal}
+            className="bg-white border-2 border-black text-black hover:bg-gray-50 px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit"
+          >
+            <FontAwesomeIcon icon={faUserTie} /> Añadir Staff
+          </button>
+          <button 
+            onClick={handleOpenNewUserModal}
+            className="bg-black hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit"
+          >
+            <FontAwesomeIcon icon={faUserPlus} /> Nuevo Cliente
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -329,14 +438,194 @@ export default function DashboardAdmin() {
         </div>
       </div>
 
+      {/* ================= MODAL DE NUEVO CLIENTE (REGISTRO + PAGO) ================= */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white z-10">
+              <h2 className="text-xl font-extrabold text-black">
+                Registrar Nuevo Cliente
+              </h2>
+              <button onClick={() => setIsUserModalOpen(false)} className="text-gray-400 hover:text-black transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveUser} className="p-6 overflow-y-auto space-y-8">
+              <div>
+                <h3 className="text-sm font-black text-black uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs">1</span> 
+                  Datos Personales
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Nombre</label>
+                    <input 
+                      type="text" required value={newUserFormData.first_name}
+                      onChange={(e) => setNewUserFormData({...newUserFormData, first_name: e.target.value})}
+                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
+                      placeholder="Ej. Juan"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Apellido</label>
+                    <input 
+                      type="text" required value={newUserFormData.last_name}
+                      onChange={(e) => setNewUserFormData({...newUserFormData, last_name: e.target.value})}
+                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
+                      placeholder="Ej. Pérez"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Correo Electrónico</label>
+                    <input 
+                      type="email" required value={newUserFormData.email}
+                      onChange={(e) => setNewUserFormData({...newUserFormData, email: e.target.value})}
+                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
+                      placeholder="juan@correo.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Fecha de Nacimiento</label>
+                    <input 
+                      type="date" value={newUserFormData.birth_date}
+                      onChange={(e) => setNewUserFormData({...newUserFormData, birth_date: e.target.value})}
+                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Contraseña Inicial</label>
+                    <input 
+                      type="password" required value={newUserFormData.password}
+                      onChange={(e) => setNewUserFormData({...newUserFormData, password: e.target.value})}
+                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
+                      placeholder="Asigna una contraseña de acceso inicial"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-black text-black uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-black text-white flex items-center justify-center text-xs">2</span> 
+                  Asignar Membresía y Pago
+                </h3>
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Seleccionar Plan (Opcional)</label>
+                    <select 
+                      value={newUserFormData.plan_id}
+                      onChange={(e) => handlePlanSelection(e.target.value)}
+                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer"
+                    >
+                      <option value="">-- Registrar sin plan por ahora --</option>
+                      {plans.map(plan => (
+                        <option key={plan.id} value={plan.id}>
+                          {plan.name} - ${plan.price || 0}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {newUserFormData.plan_id && (
+                    <div className="grid grid-cols-2 gap-4 animate-fade-in pt-2">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Monto Cobrado ($)</label>
+                        <input 
+                          type="number" step="0.01" min="0" required value={newUserFormData.amount_paid}
+                          onChange={(e) => setNewUserFormData({...newUserFormData, amount_paid: e.target.value})}
+                          className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Método de Pago</label>
+                        <select 
+                          value={newUserFormData.payment_method}
+                          onChange={(e) => setNewUserFormData({...newUserFormData, payment_method: e.target.value})}
+                          className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer"
+                        >
+                          <option value="CASH">Efectivo (Cash)</option>
+                          <option value="ZELLE">Zelle</option>
+                          <option value="PAGO_MOVIL">Pago Móvil</option>
+                          <option value="STRIPE">Tarjeta de Crédito</option>
+                          <option value="MERCADOPAGO">MercadoPago</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100 flex gap-3 sticky bottom-0 bg-white">
+                <button type="button" onClick={() => setIsUserModalOpen(false)} disabled={isSubmitting} className="flex-1 bg-white border border-gray-300 text-gray-700 font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-50 transition shadow-sm disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSubmitting} className="flex-1 bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-sm disabled:bg-gray-400 flex justify-center items-center gap-2">
+                  {isSubmitting ? <><FontAwesomeIcon icon={faBars} className="animate-spin" /> Procesando...</> : 'Registrar y Cobrar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL DE NUEVO STAFF / COACH ================= */}
+      {isStaffModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="text-xl font-extrabold text-black">Añadir Staff / Coach</h2>
+              <button onClick={() => setIsStaffModalOpen(false)} className="text-gray-400 hover:text-black transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveStaff} className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Nombre</label>
+                  <input type="text" required value={newStaffFormData.first_name} onChange={(e) => setNewStaffFormData({...newStaffFormData, first_name: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Apellido</label>
+                  <input type="text" required value={newStaffFormData.last_name} onChange={(e) => setNewStaffFormData({...newStaffFormData, last_name: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Correo Electrónico</label>
+                <input type="email" required value={newStaffFormData.email} onChange={(e) => setNewStaffFormData({...newStaffFormData, email: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Rol en el Box</label>
+                  <select value={newStaffFormData.role} onChange={(e) => setNewStaffFormData({...newStaffFormData, role: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer">
+                    <option value="COACH">Coach / Entrenador</option>
+                    <option value="STAFF">Staff Administrativo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Contraseña</label>
+                  <input type="password" required value={newStaffFormData.password} onChange={(e) => setNewStaffFormData({...newStaffFormData, password: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="***" />
+                </div>
+              </div>
+
+              <div className="pt-5 border-t border-gray-100 flex gap-3">
+                <button type="button" onClick={() => setIsStaffModalOpen(false)} disabled={isSubmitting} className="flex-1 bg-white border border-gray-300 text-gray-700 font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-50 transition shadow-sm disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSubmitting} className="flex-1 bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-sm disabled:bg-gray-400">
+                  {isSubmitting ? 'Guardando...' : 'Crear Perfil'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ================= MODAL DE CREAR / EDITAR PLAN ================= */}
       {isPlanModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-              <h2 className="text-xl font-extrabold text-black">
-                {editingPlan ? 'Editar Plan' : 'Nuevo Plan'}
-              </h2>
+              <h2 className="text-xl font-extrabold text-black">{editingPlan ? 'Editar Plan' : 'Nuevo Plan'}</h2>
               <button onClick={() => setIsPlanModalOpen(false)} className="text-gray-400 hover:text-black transition-colors">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -345,98 +634,38 @@ export default function DashboardAdmin() {
             <form onSubmit={handleSavePlan} className="p-6 space-y-5">
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Nombre del Plan</label>
-                <input 
-                  type="text" 
-                  required
-                  value={planFormData.name}
-                  onChange={(e) => setPlanFormData({...planFormData, name: e.target.value})}
-                  className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                  placeholder="Ej. Membresía Ilimitada"
-                />
+                <input type="text" required value={planFormData.name} onChange={(e) => setPlanFormData({...planFormData, name: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="Ej. Membresía Ilimitada" />
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Tarifa ($)</label>
-                  <input 
-                    type="number" 
-                    min="0"
-                    step="0.01"
-                    required
-                    value={planFormData.price}
-                    onChange={(e) => setPlanFormData({...planFormData, price: e.target.value})}
-                    className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                    placeholder="Ej. 60"
-                  />
+                  <input type="number" min="0" step="0.01" required value={planFormData.price} onChange={(e) => setPlanFormData({...planFormData, price: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="Ej. 60" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Categoría</label>
-                  <select 
-                    value={planFormData.category}
-                    onChange={(e) => setPlanFormData({...planFormData, category: e.target.value})}
-                    className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer"
-                  >
+                  <select value={planFormData.category} onChange={(e) => setPlanFormData({...planFormData, category: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer">
                     <option value="RECURRING">RECURRING (Mensualidad)</option>
                     <option value="DROP_IN">DROP_IN (Clase Suelta)</option>
                   </select>
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Clases por Sem.</label>
-                  <input 
-                    type="number" 
-                    min="1"
-                    required={!planFormData.is_unlimited}
-                    disabled={planFormData.is_unlimited}
-                    value={planFormData.is_unlimited ? '' : planFormData.credits_per_week}
-                    onChange={(e) => setPlanFormData({...planFormData, credits_per_week: e.target.value})}
-                    className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
-                    placeholder="Ej. 4"
-                  />
+                  <input type="number" min="1" required={!planFormData.is_unlimited} disabled={planFormData.is_unlimited} value={planFormData.is_unlimited ? '' : planFormData.credits_per_week} onChange={(e) => setPlanFormData({...planFormData, credits_per_week: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm disabled:bg-gray-100 disabled:cursor-not-allowed" placeholder="Ej. 4" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Validez (Días)</label>
-                  <input 
-                    type="number" 
-                    min="1"
-                    required
-                    value={planFormData.validity_days}
-                    onChange={(e) => setPlanFormData({...planFormData, validity_days: e.target.value})}
-                    className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                    placeholder="Ej. 30"
-                  />
+                  <input type="number" min="1" required value={planFormData.validity_days} onChange={(e) => setPlanFormData({...planFormData, validity_days: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="Ej. 30" />
                 </div>
               </div>
-
               <div className="flex items-center pt-1">
-                <input 
-                  type="checkbox" 
-                  id="unlimited"
-                  checked={planFormData.is_unlimited}
-                  onChange={(e) => setPlanFormData({...planFormData, is_unlimited: e.target.checked})}
-                  className="w-4 h-4 text-black bg-white border-gray-300 rounded focus:ring-black focus:ring-2 cursor-pointer"
-                />
-                <label htmlFor="unlimited" className="ml-2 text-sm font-bold text-gray-700 cursor-pointer">
-                  Clases Ilimitadas
-                </label>
+                <input type="checkbox" id="unlimited" checked={planFormData.is_unlimited} onChange={(e) => setPlanFormData({...planFormData, is_unlimited: e.target.checked})} className="w-4 h-4 text-black bg-white border-gray-300 rounded focus:ring-black focus:ring-2 cursor-pointer" />
+                <label htmlFor="unlimited" className="ml-2 text-sm font-bold text-gray-700 cursor-pointer">Clases Ilimitadas</label>
               </div>
-
               <div className="pt-5 border-t border-gray-100 flex gap-3">
-                <button 
-                  type="button" 
-                  onClick={() => setIsPlanModalOpen(false)}
-                  className="flex-1 bg-white border border-gray-300 text-gray-700 font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-50 transition shadow-sm"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-sm"
-                >
-                  Guardar Plan
-                </button>
+                <button type="button" onClick={() => setIsPlanModalOpen(false)} className="flex-1 bg-white border border-gray-300 text-gray-700 font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-50 transition shadow-sm">Cancelar</button>
+                <button type="submit" className="flex-1 bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-sm">Guardar Plan</button>
               </div>
             </form>
           </div>
