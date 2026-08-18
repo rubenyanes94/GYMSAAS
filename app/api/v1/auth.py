@@ -6,6 +6,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import date
+from sqlalchemy import select, and_
+from app.models.schema import User, UserSubscription, Plan
 
 from app.core.database import get_db
 from app.core import security
@@ -176,13 +178,44 @@ async def get_users(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Obtiene la lista de usuarios registrados.
+    Obtiene la lista de usuarios registrados e incluye su membresía activa.
     """
-    query = select(User).offset(skip).limit(limit)
-    result = await db.execute(query)
-    users = result.scalars().all()
+    # Hacemos un JOIN con la suscripción (solo las activas) y luego con el plan
+    query = (
+        select(
+            User, 
+            Plan.name.label("plan_name"), 
+            Plan.price.label("plan_price")
+        )
+        .outerjoin(
+            UserSubscription, 
+            and_(UserSubscription.user_id == User.id, UserSubscription.status == "ACTIVE")
+        )
+        .outerjoin(
+            Plan, 
+            Plan.id == UserSubscription.plan_id
+        )
+        .offset(skip)
+        .limit(limit)
+    )
     
-    return users
+    result = await db.execute(query)
+    rows = result.all()
+    
+    users_data = []
+    for user_obj, plan_name, plan_price in rows:
+        user_dict = {
+            "id": user_obj.id,
+            "first_name": user_obj.first_name,
+            "last_name": user_obj.last_name,
+            "email": user_obj.email,
+            "roles": user_obj.roles,
+            "plan_name": plan_name,
+            "plan_price": plan_price
+        }
+        users_data.append(user_dict)
+    
+    return users_data
 
 @router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(

@@ -22,6 +22,8 @@ interface User {
   email: string;
   roles: string[];
   is_active: boolean;
+  plan_name?: string;
+  plan_price?: number;
 }
 
 interface Plan {
@@ -54,7 +56,6 @@ interface NewUserFormData {
   amount_paid: string;
 }
 
-// Interfaz para el formulario de nuevo Staff / Coach
 interface NewStaffFormData {
   first_name: string;
   last_name: string;
@@ -188,7 +189,6 @@ export default function DashboardAdmin() {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
       
-      // 1. Crear el Atleta apuntando a /auth/register
       const userPayload = {
         first_name: newUserFormData.first_name,
         last_name: newUserFormData.last_name,
@@ -198,15 +198,19 @@ export default function DashboardAdmin() {
       };
       
       const userRes = await api.post('/auth/register', userPayload, { headers });
-      const newUser = userRes.data;
+      const newUser: User = userRes.data;
 
-      // 2. Asignar Suscripción apuntando a /finances/subscriptions
       if (newUserFormData.plan_id) {
         const subscriptionPayload = {
           user_id: newUser.id,
           plan_id: newUserFormData.plan_id
         };
         await api.post('/finances/subscriptions', subscriptionPayload, { headers });
+        
+        // Actualización optimista de la tabla para reflejar el plan recién comprado
+        const selectedPlan = plans.find(p => p.id === newUserFormData.plan_id);
+        newUser.plan_name = selectedPlan?.name;
+        newUser.plan_price = Number(newUserFormData.amount_paid);
       }
 
       setUsers([newUser, ...users]);
@@ -240,7 +244,6 @@ export default function DashboardAdmin() {
         role: newStaffFormData.role
       };
       
-      // Apunta al endpoint de registro interno para Staff
       const staffRes = await api.post('/auth/register-staff', staffPayload, { headers });
       const newStaff = staffRes.data;
 
@@ -403,19 +406,20 @@ export default function DashboardAdmin() {
                 <th className="p-4">Nombre</th>
                 <th className="p-4">Correo Electrónico</th>
                 <th className="p-4">Rol</th>
+                <th className="p-4">Membresía</th>
                 <th className="p-4 text-center">Estado</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="p-8 text-center text-gray-400 font-bold text-sm">
+                  <td colSpan={5} className="p-8 text-center text-gray-400 font-bold text-sm">
                     <FontAwesomeIcon icon={faBars} className="animate-pulse mr-2" /> Cargando base de datos...
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-8 text-center text-gray-400 font-bold text-sm">No hay usuarios registrados todavía.</td>
+                  <td colSpan={5} className="p-8 text-center text-gray-400 font-bold text-sm">No hay usuarios registrados todavía.</td>
                 </tr>
               ) : (
                 users.map((user) => (
@@ -423,6 +427,19 @@ export default function DashboardAdmin() {
                     <td className="p-4"><div className="font-extrabold text-black text-sm">{user.first_name} {user.last_name}</div></td>
                     <td className="p-4 text-sm font-medium text-gray-500 group-hover:text-black transition-colors">{user.email}</td>
                     <td className="p-4"><span className="inline-block bg-gray-100 text-black border border-gray-200 rounded-md px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide">{user.roles.join(', ')}</span></td>
+                    
+                    {/* Nueva columna para el plan activo */}
+                    <td className="p-4">
+                      {user.plan_name ? (
+                        <div className="flex flex-col">
+                          <span className="text-xs font-extrabold text-black uppercase">{user.plan_name}</span>
+                          <span className="text-[10px] font-bold text-gray-500">${user.plan_price} USD</span>
+                        </div>
+                      ) : (
+                        <span className="inline-block bg-gray-50 text-gray-400 border border-gray-200 rounded-md px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide">Sin Plan</span>
+                      )}
+                    </td>
+
                     <td className="p-4 text-center">
                       {user.is_active ? (
                         <span className="inline-flex items-center text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wide"><span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span>Activo</span>
@@ -460,47 +477,23 @@ export default function DashboardAdmin() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Nombre</label>
-                    <input 
-                      type="text" required value={newUserFormData.first_name}
-                      onChange={(e) => setNewUserFormData({...newUserFormData, first_name: e.target.value})}
-                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                      placeholder="Ej. Juan"
-                    />
+                    <input type="text" required value={newUserFormData.first_name} onChange={(e) => setNewUserFormData({...newUserFormData, first_name: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="Ej. Juan" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Apellido</label>
-                    <input 
-                      type="text" required value={newUserFormData.last_name}
-                      onChange={(e) => setNewUserFormData({...newUserFormData, last_name: e.target.value})}
-                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                      placeholder="Ej. Pérez"
-                    />
+                    <input type="text" required value={newUserFormData.last_name} onChange={(e) => setNewUserFormData({...newUserFormData, last_name: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="Ej. Pérez" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Correo Electrónico</label>
-                    <input 
-                      type="email" required value={newUserFormData.email}
-                      onChange={(e) => setNewUserFormData({...newUserFormData, email: e.target.value})}
-                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                      placeholder="juan@correo.com"
-                    />
+                    <input type="email" required value={newUserFormData.email} onChange={(e) => setNewUserFormData({...newUserFormData, email: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="juan@correo.com" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Fecha de Nacimiento</label>
-                    <input 
-                      type="date" value={newUserFormData.birth_date}
-                      onChange={(e) => setNewUserFormData({...newUserFormData, birth_date: e.target.value})}
-                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                    />
+                    <input type="date" value={newUserFormData.birth_date} onChange={(e) => setNewUserFormData({...newUserFormData, birth_date: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Contraseña Inicial</label>
-                    <input 
-                      type="password" required value={newUserFormData.password}
-                      onChange={(e) => setNewUserFormData({...newUserFormData, password: e.target.value})}
-                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                      placeholder="Asigna una contraseña de acceso inicial"
-                    />
+                    <input type="password" required value={newUserFormData.password} onChange={(e) => setNewUserFormData({...newUserFormData, password: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" placeholder="Asigna una contraseña de acceso inicial" />
                   </div>
                 </div>
               </div>
@@ -513,16 +506,10 @@ export default function DashboardAdmin() {
                 <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5 space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Seleccionar Plan (Opcional)</label>
-                    <select 
-                      value={newUserFormData.plan_id}
-                      onChange={(e) => handlePlanSelection(e.target.value)}
-                      className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer"
-                    >
+                    <select value={newUserFormData.plan_id} onChange={(e) => handlePlanSelection(e.target.value)} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer">
                       <option value="">-- Registrar sin plan por ahora --</option>
                       {plans.map(plan => (
-                        <option key={plan.id} value={plan.id}>
-                          {plan.name} - ${plan.price || 0}
-                        </option>
+                        <option key={plan.id} value={plan.id}>{plan.name} - ${plan.price || 0}</option>
                       ))}
                     </select>
                   </div>
@@ -531,19 +518,11 @@ export default function DashboardAdmin() {
                     <div className="grid grid-cols-2 gap-4 animate-fade-in pt-2">
                       <div>
                         <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Monto Cobrado ($)</label>
-                        <input 
-                          type="number" step="0.01" min="0" required value={newUserFormData.amount_paid}
-                          onChange={(e) => setNewUserFormData({...newUserFormData, amount_paid: e.target.value})}
-                          className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm"
-                        />
+                        <input type="number" step="0.01" min="0" required value={newUserFormData.amount_paid} onChange={(e) => setNewUserFormData({...newUserFormData, amount_paid: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm" />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5">Método de Pago</label>
-                        <select 
-                          value={newUserFormData.payment_method}
-                          onChange={(e) => setNewUserFormData({...newUserFormData, payment_method: e.target.value})}
-                          className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer"
-                        >
+                        <select value={newUserFormData.payment_method} onChange={(e) => setNewUserFormData({...newUserFormData, payment_method: e.target.value})} className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer">
                           <option value="CASH">Efectivo (Cash)</option>
                           <option value="ZELLE">Zelle</option>
                           <option value="PAGO_MOVIL">Pago Móvil</option>
