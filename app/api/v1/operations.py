@@ -218,7 +218,7 @@ async def reserve_class(
     if now_caracas > class_session.start_time:
         raise HTTPException(status_code=403, detail="La clase ya comenzó o finalizó.")
 
-    # 3. BLOQUEO DE LA SUSCRIPCIÓN
+    # 3. BLOQUEO Y VALIDACIÓN DE LA SUSCRIPCIÓN
     sub_result = await db.execute(
         select(UserSubscription)
         .filter(UserSubscription.user_id == payload.user_id)
@@ -226,15 +226,31 @@ async def reserve_class(
     )
     subscription = sub_result.scalars().first()
 
-    if not subscription or subscription.status != "ACTIVE" or subscription.renews_at < now_caracas:
-        raise HTTPException(status_code=403, detail="No tienes una membresía activa.")
-    
+    # Si no tiene suscripción
+    if not subscription:
+        raise HTTPException(status_code=403, detail="No tienes una membresía asignada.")
+
+    # Si la suscripción ya pasó su fecha de vencimiento
+    if subscription.renews_at < now_caracas:
+        # Actualizamos el estado a inactivo si no lo estaba
+        if subscription.status == "ACTIVE":
+            subscription.status = "INACTIVE"
+            await db.commit()
+        raise HTTPException(
+            status_code=403, 
+            detail="Tu membresía ha caducado. Por favor, renueva tu plan para continuar reservando."
+        )
+        
+    # Si la suscripción fue cancelada manualmente
+    if subscription.status != "ACTIVE":
+         raise HTTPException(status_code=403, detail="Tu membresía se encuentra inactiva.")
+
+    # Validación de créditos
     if subscription.current_weekly_credits <= 0:
         raise HTTPException(
             status_code=403, 
             detail="No tienes créditos disponibles para reservar."
         )
-
     # 4. LÓGICA TIER-BASED ACCESS
     if class_session.room:
         # Aquí asumo que la relación del plan expone su nombre en `plan_name`. 
