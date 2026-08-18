@@ -59,6 +59,7 @@ class PasswordChangePublic(BaseModel):
 class PlanCreate(BaseModel):
     name: str
     category: PlanCategory = PlanCategory.RECURRING
+    price: float = 0.0
     credits_per_week: Optional[int] = None
     validity_days: Optional[int] = None
     is_unlimited: bool = False
@@ -66,6 +67,7 @@ class PlanCreate(BaseModel):
 class PlanUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[PlanCategory] = None
+    price: Optional[float] = None
     credits_per_week: Optional[int] = None
     validity_days: Optional[int] = None
     is_unlimited: Optional[bool] = None

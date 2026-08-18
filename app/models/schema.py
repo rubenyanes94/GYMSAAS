@@ -157,6 +157,7 @@ class Plan(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
     category = Column(Enum(PlanCategory), default=PlanCategory.RECURRING)
+    price = Column(Float, nullable=False, default=0.0)
     credits_per_week = Column(Integer, nullable=True)
     validity_days = Column(Integer, nullable=True) 
     is_unlimited = Column(Boolean, default=False)

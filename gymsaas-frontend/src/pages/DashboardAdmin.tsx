@@ -52,10 +52,10 @@ export default function DashboardAdmin() {
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   
-  // Usamos strings iniciales vacíos para permitir escribir cómodamente
+  // Usamos strings iniciales vacíos para permitir escribir cómodamente y 'RECURRING' para que el backend lo acepte
   const [planFormData, setPlanFormData] = useState<PlanFormData>({
     name: '',
-    category: 'Mensualidad',
+    category: 'RECURRING',
     price: '',
     credits_per_week: '',
     validity_days: '',
@@ -91,7 +91,7 @@ export default function DashboardAdmin() {
     setEditingPlan(null);
     setPlanFormData({
       name: '',
-      category: 'Mensualidad',
+      category: 'RECURRING', // Ajustado a RECURRING para que el backend no devuelva error 422
       price: '', // Inicia vacío para no forzar el "0"
       credits_per_week: '',
       validity_days: '',
@@ -376,9 +376,8 @@ export default function DashboardAdmin() {
                     onChange={(e) => setPlanFormData({...planFormData, category: e.target.value})}
                     className="w-full bg-white border border-gray-300 text-black rounded-xl p-3 text-sm font-medium focus:ring-black focus:border-black outline-none transition shadow-sm cursor-pointer"
                   >
-                    <option value="Mensualidad">Mensualidad</option>
-                    <option value="Drop-in">Drop-in</option>
-                    <option value="Trimestral">Trimestral</option>
+                    <option value="RECURRING">RECURRING (Mensualidad)</option>
+                    <option value="DROP_IN">DROP_IN (Clase Suelta)</option>
                   </select>
                 </div>
               </div>

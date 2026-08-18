@@ -52,6 +52,7 @@ async def create_plan(
     new_plan = Plan(
         name=plan_in.name,
         category=plan_in.category,
+        price=plan_in.price,
         credits_per_week=plan_in.credits_per_week,
         validity_days=plan_in.validity_days,
         is_unlimited=plan_in.is_unlimited
