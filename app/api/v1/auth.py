@@ -185,7 +185,8 @@ async def get_users(
         select(
             User, 
             Plan.name.label("plan_name"), 
-            Plan.price.label("plan_price")
+            Plan.price.label("plan_price"),
+            UserSubscription.renews_at.label("plan_expiration"),
         )
         .outerjoin(
             UserSubscription, 
@@ -203,7 +204,7 @@ async def get_users(
     rows = result.all()
     
     users_data = []
-    for user_obj, plan_name, plan_price in rows:
+    for user_obj, plan_name, plan_price, plan_expiration in rows:
         user_dict = {
             "id": user_obj.id,
             "first_name": user_obj.first_name,
@@ -211,7 +212,8 @@ async def get_users(
             "email": user_obj.email,
             "roles": user_obj.roles,
             "plan_name": plan_name,
-            "plan_price": plan_price
+            "plan_price": plan_price,
+            "plan_expiration": plan_expiration,
         }
         users_data.append(user_dict)
     

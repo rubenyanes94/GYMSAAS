@@ -35,6 +35,7 @@ class UserResponse(UserBase):
     created_at: Optional[datetime] = None
     plan_name: Optional[str] = None
     plan_price: Optional[float] = None
+    plan_expiration: Optional[datetime] = None
 
 class UserUpdate(BaseModel):
     first_name: Optional[str] = None

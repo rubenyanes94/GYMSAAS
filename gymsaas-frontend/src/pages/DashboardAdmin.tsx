@@ -12,7 +12,8 @@ import {
   faEdit,
   faTrash,
   faUserPlus,
-  faUserTie
+  faUserTie,
+  faFilter
 } from '@fortawesome/free-solid-svg-icons';
 
 interface User {
@@ -24,6 +25,7 @@ interface User {
   is_active: boolean;
   plan_name?: string;
   plan_price?: number;
+  plan_expiration?: string; // Nuevo campo para la fecha de vencimiento
 }
 
 interface Plan {
@@ -70,6 +72,9 @@ export default function DashboardAdmin() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  
+  // Estado para el filtro de la tabla
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'ATHLETE' | 'STAFF'>('ALL');
 
   // Estados Modal Planes
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
@@ -114,6 +119,14 @@ export default function DashboardAdmin() {
 
     fetchDashboardData();
   }, []);
+
+  // Lógica de Filtrado de Usuarios
+  const filteredUsers = users.filter(user => {
+    if (roleFilter === 'ALL') return true;
+    if (roleFilter === 'ATHLETE') return user.roles.includes('ATHLETE');
+    if (roleFilter === 'STAFF') return user.roles.includes('COACH') || user.roles.includes('STAFF');
+    return true;
+  });
 
   // ================= PLANES =================
   const handleOpenNewPlanModal = () => {
@@ -205,12 +218,13 @@ export default function DashboardAdmin() {
           user_id: newUser.id,
           plan_id: newUserFormData.plan_id
         };
-        await api.post('/finances/subscriptions', subscriptionPayload, { headers });
+        const subRes = await api.post('/finances/subscriptions', subscriptionPayload, { headers });
         
-        // Actualización optimista de la tabla para reflejar el plan recién comprado
+        // Actualización optimista de la tabla
         const selectedPlan = plans.find(p => p.id === newUserFormData.plan_id);
         newUser.plan_name = selectedPlan?.name;
         newUser.plan_price = Number(newUserFormData.amount_paid);
+        newUser.plan_expiration = subRes.data.renews_at; // Tomamos la fecha generada por el backend
       }
 
       setUsers([newUser, ...users]);
@@ -267,16 +281,10 @@ export default function DashboardAdmin() {
           <p className="text-sm font-bold text-gray-500 mt-1">Monitorea la actividad de tu gimnasio en tiempo real.</p>
         </div>
         <div className="flex gap-3">
-          <button 
-            onClick={handleOpenNewStaffModal}
-            className="bg-white border-2 border-black text-black hover:bg-gray-50 px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit"
-          >
+          <button onClick={handleOpenNewStaffModal} className="bg-white border-2 border-black text-black hover:bg-gray-50 px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit">
             <FontAwesomeIcon icon={faUserTie} /> Añadir Staff
           </button>
-          <button 
-            onClick={handleOpenNewUserModal}
-            className="bg-black hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit"
-          >
+          <button onClick={handleOpenNewUserModal} className="bg-black hover:bg-gray-800 text-white px-5 py-2.5 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm w-fit">
             <FontAwesomeIcon icon={faUserPlus} /> Nuevo Cliente
           </button>
         </div>
@@ -292,9 +300,7 @@ export default function DashboardAdmin() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black">
-              <FontAwesomeIcon icon={faUsers} />
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black"><FontAwesomeIcon icon={faUsers} /></div>
             <span className="text-xs font-extrabold text-green-700 bg-green-50 border border-green-100 px-2 py-1 rounded-md">+12%</span>
           </div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Atletas Activos</p>
@@ -305,9 +311,7 @@ export default function DashboardAdmin() {
         
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black">
-              <FontAwesomeIcon icon={faCashRegister} />
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black"><FontAwesomeIcon icon={faCashRegister} /></div>
           </div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Ventas (Hoy)</p>
           <h3 className="text-3xl font-black text-black mt-1">$340.00</h3>
@@ -315,9 +319,7 @@ export default function DashboardAdmin() {
         
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black">
-              <FontAwesomeIcon icon={faMoneyBillWave} />
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black"><FontAwesomeIcon icon={faMoneyBillWave} /></div>
             <span className="text-xs font-extrabold text-red-700 bg-red-50 border border-red-100 px-2 py-1 rounded-md">-2%</span>
           </div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Ingresos Mensuales</p>
@@ -326,9 +328,7 @@ export default function DashboardAdmin() {
 
         <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
           <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black">
-              <FontAwesomeIcon icon={faDumbbell} />
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-black"><FontAwesomeIcon icon={faDumbbell} /></div>
           </div>
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Clases de Hoy</p>
           <h3 className="text-3xl font-black text-black mt-1">6</h3>
@@ -342,10 +342,7 @@ export default function DashboardAdmin() {
             <h2 className="text-xl font-extrabold text-black">Planes y Tarifas</h2>
             <p className="text-gray-500 text-xs font-bold mt-1">Gestiona las membresías disponibles para tus atletas.</p>
           </div>
-          <button 
-            onClick={handleOpenNewPlanModal}
-            className="bg-white border-2 border-black hover:bg-gray-50 text-black px-4 py-2 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm"
-          >
+          <button onClick={handleOpenNewPlanModal} className="bg-white border-2 border-black hover:bg-gray-50 text-black px-4 py-2 rounded-xl font-extrabold text-sm transition flex items-center gap-2 shadow-sm">
             <FontAwesomeIcon icon={faPlus} className="w-3 h-3" /> Nuevo Plan
           </button>
         </div>
@@ -358,31 +355,19 @@ export default function DashboardAdmin() {
                   {plan.category}
                 </span>
                 <div className="flex gap-2">
-                  <button onClick={() => handleOpenEditPlanModal(plan)} className="text-gray-400 hover:text-black transition">
-                    <FontAwesomeIcon icon={faEdit} />
-                  </button>
-                  <button onClick={() => handleDeletePlan(plan.id)} className="text-gray-400 hover:text-red-500 transition">
-                    <FontAwesomeIcon icon={faTrash} />
-                  </button>
+                  <button onClick={() => handleOpenEditPlanModal(plan)} className="text-gray-400 hover:text-black transition"><FontAwesomeIcon icon={faEdit} /></button>
+                  <button onClick={() => handleDeletePlan(plan.id)} className="text-gray-400 hover:text-red-500 transition"><FontAwesomeIcon icon={faTrash} /></button>
                 </div>
               </div>
-              
               <h3 className="text-lg font-black text-black mt-2">{plan.name}</h3>
               <div className="mt-4 flex items-baseline gap-1">
                 <span className="text-2xl font-black text-black">${plan.price || 0}</span>
                 <span className="text-xs font-bold text-gray-500">USD</span>
               </div>
-              
               <div className="mt-4 pt-4 border-t border-gray-100 flex-1">
                 <ul className="space-y-2 text-sm font-medium text-gray-600">
-                  <li className="flex items-center gap-2">
-                    <FontAwesomeIcon icon={faDumbbell} className="w-3.5 h-3.5 text-gray-400" />
-                    {plan.is_unlimited ? 'Clases Ilimitadas' : `${plan.credits_per_week} clases por semana`}
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <FontAwesomeIcon icon={faTag} className="w-3.5 h-3.5 text-gray-400" />
-                    Válido por {plan.validity_days} días
-                  </li>
+                  <li className="flex items-center gap-2"><FontAwesomeIcon icon={faDumbbell} className="w-3.5 h-3.5 text-gray-400" /> {plan.is_unlimited ? 'Clases Ilimitadas' : `${plan.credits_per_week} clases por semana`}</li>
+                  <li className="flex items-center gap-2"><FontAwesomeIcon icon={faTag} className="w-3.5 h-3.5 text-gray-400" /> Válido por {plan.validity_days} días</li>
                 </ul>
               </div>
             </div>
@@ -390,45 +375,67 @@ export default function DashboardAdmin() {
         </div>
       </div>
 
-      {/* ================= TABLA DE USUARIOS ================= */}
+      {/* ================= TABLA DE USUARIOS CON FILTROS ================= */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden mb-10">
-        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+        <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/50">
           <div>
             <h2 className="text-lg font-extrabold text-black">Directorio de Usuarios</h2>
-            <p className="text-gray-500 text-xs font-bold mt-1">Lista completa de atletas y staff registrados.</p>
+            <p className="text-gray-500 text-xs font-bold mt-1">Filtra y visualiza la lista del personal y atletas.</p>
+          </div>
+          
+          {/* BOTONES DE FILTRO */}
+          <div className="flex bg-white border border-gray-200 rounded-lg p-1 shadow-sm w-full sm:w-auto">
+            <button 
+              onClick={() => setRoleFilter('ALL')} 
+              className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-extrabold rounded-md transition-colors ${roleFilter === 'ALL' ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}
+            >
+              Todos
+            </button>
+            <button 
+              onClick={() => setRoleFilter('ATHLETE')} 
+              className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-extrabold rounded-md transition-colors ${roleFilter === 'ATHLETE' ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}
+            >
+              Atletas
+            </button>
+            <button 
+              onClick={() => setRoleFilter('STAFF')} 
+              className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-extrabold rounded-md transition-colors ${roleFilter === 'STAFF' ? 'bg-black text-white' : 'text-gray-500 hover:text-black'}`}
+            >
+              Staff & Coach
+            </button>
           </div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[600px]">
+          <table className="w-full text-left border-collapse min-w-[700px]">
             <thead>
               <tr className="bg-white text-gray-400 text-[10px] uppercase tracking-widest border-b border-gray-100 font-black">
                 <th className="p-4">Nombre</th>
                 <th className="p-4">Correo Electrónico</th>
                 <th className="p-4">Rol</th>
                 <th className="p-4">Membresía</th>
+                {roleFilter !== 'STAFF' && <th className="p-4">Vencimiento</th>}
                 <th className="p-4 text-center">Estado</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-gray-400 font-bold text-sm">
+                  <td colSpan={roleFilter !== 'STAFF' ? 6 : 5} className="p-8 text-center text-gray-400 font-bold text-sm">
                     <FontAwesomeIcon icon={faBars} className="animate-pulse mr-2" /> Cargando base de datos...
                   </td>
                 </tr>
-              ) : users.length === 0 ? (
+              ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-gray-400 font-bold text-sm">No hay usuarios registrados todavía.</td>
+                  <td colSpan={roleFilter !== 'STAFF' ? 6 : 5} className="p-8 text-center text-gray-400 font-bold text-sm">No hay usuarios bajo este filtro.</td>
                 </tr>
               ) : (
-                users.map((user) => (
+                filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors group cursor-pointer">
                     <td className="p-4"><div className="font-extrabold text-black text-sm">{user.first_name} {user.last_name}</div></td>
                     <td className="p-4 text-sm font-medium text-gray-500 group-hover:text-black transition-colors">{user.email}</td>
                     <td className="p-4"><span className="inline-block bg-gray-100 text-black border border-gray-200 rounded-md px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide">{user.roles.join(', ')}</span></td>
                     
-                    {/* Nueva columna para el plan activo */}
                     <td className="p-4">
                       {user.plan_name ? (
                         <div className="flex flex-col">
@@ -439,6 +446,19 @@ export default function DashboardAdmin() {
                         <span className="inline-block bg-gray-50 text-gray-400 border border-gray-200 rounded-md px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide">Sin Plan</span>
                       )}
                     </td>
+
+                    {/* NUEVA COLUMNA DE VENCIMIENTO */}
+                    {roleFilter !== 'STAFF' && (
+                      <td className="p-4">
+                        {user.plan_expiration ? (
+                          <span className="text-xs font-bold text-gray-600">
+                            {new Date(user.plan_expiration).toLocaleDateString('es-VE')}
+                          </span>
+                        ) : (
+                          <span className="text-xs font-medium text-gray-400">-</span>
+                        )}
+                      </td>
+                    )}
 
                     <td className="p-4 text-center">
                       {user.is_active ? (

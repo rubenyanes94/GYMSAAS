@@ -494,29 +494,78 @@ async def book_client_to_class(
 ):
     """
     Inscribe a un cliente específico en una clase (Usado por el Staff/Coach).
-    Aquí en el futuro se puede validar si el 'user_id' tiene una tarifa activa.
+    Valida estrictamente que el cliente tenga una membresía activa y vigente.
+    Si está vencido, debe ser redirigido a Caja para renovar su plan.
     """
+    now_caracas = datetime.now(CARACAS_TZ)
+
     # 1. Verificar que la clase existe
     result_cls = await db.execute(select(ClassSession).filter(ClassSession.id == class_id))
     cls = result_cls.scalars().first()
     if not cls:
         raise HTTPException(status_code=404, detail="Clase no encontrada.")
 
-    # 2. Verificar que el usuario no esté ya inscrito
+    # 2. VALIDAR SUSCRIPCIÓN ACTIVA DEL CLIENTE
+    sub_result = await db.execute(
+        select(UserSubscription)
+        .filter(UserSubscription.user_id == payload.user_id)
+        .with_for_update() # Bloqueo para evitar condiciones de carrera al descontar créditos
+    )
+    subscription = sub_result.scalars().first()
+
+    # Si no tiene suscripción, o ya caducó, o su estado no es ACTIVE
+    if not subscription or subscription.renews_at < now_caracas or subscription.status != "ACTIVE":
+        # Podrías actualizar su estado a INACTIVE aquí de forma pasiva si caducó
+        if subscription and subscription.status == "ACTIVE" and subscription.renews_at < now_caracas:
+            subscription.status = "INACTIVE"
+            await db.commit()
+            
+        raise HTTPException(
+            status_code=403, 
+            detail="El cliente tiene la membresía vencida o inactiva. Debe pasar por caja para renovar su plan."
+        )
+
+    # Validar si tiene créditos disponibles
+    if subscription.current_weekly_credits <= 0:
+        raise HTTPException(
+            status_code=403, 
+            detail="El cliente no tiene créditos disponibles en su plan actual."
+        )
+
+    # 3. Verificar que el usuario no esté ya inscrito (o en lista de espera)
     result_existing = await db.execute(
         select(Booking).filter(Booking.session_id == class_id, Booking.user_id == payload.user_id)
     )
     existing_booking = result_existing.scalars().first()
     if existing_booking:
-        raise HTTPException(status_code=400, detail="El cliente ya está inscrito o en lista de espera para esta clase.")
+        raise HTTPException(
+            status_code=400, 
+            detail="El cliente ya está inscrito o en lista de espera para esta clase."
+        )
 
-    # 3. Crear la reserva
+    # 4. Determinar si va a Reserva o Lista de Espera basado en la capacidad
+    count_result = await db.execute(
+        select(func.count(Booking.id))
+        .filter(Booking.session_id == class_id, Booking.status == "RESERVED")
+    )
+    reserved_count = count_result.scalar() or 0
+    booking_status = "RESERVED" if reserved_count < cls.max_capacity else "WAITLISTED"
+
+    # 5. Descontar el crédito atómicamente
+    subscription.current_weekly_credits -= 1
+
+    # 6. Crear la reserva
     new_booking = Booking(
         user_id=payload.user_id,
         session_id=class_id,
-        status="RESERVED" # Si el aforo estuviera lleno, aquí se podría poner "WAITLISTED"
+        status=booking_status 
     )
     db.add(new_booking)
+    
     await db.commit()
     
-    return {"message": "Cliente apuntado con éxito"}
+    # Retornamos el estado para que el frontend pueda avisar si entró a reserva o lista de espera
+    return {
+        "message": "Cliente procesado con éxito.",
+        "status": booking_status
+    }
