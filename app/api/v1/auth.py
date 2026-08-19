@@ -62,6 +62,39 @@ async def register_user(
     
     return new_user
 
+# Asegúrate de tener estas importaciones arriba
+from sqlalchemy import delete
+from app.models.schema import User, Booking, UserSubscription
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Elimina permanentemente a un usuario y todo su historial de la base de datos.
+    """
+    # 1. Verificar que el usuario existe
+    result = await db.execute(select(User).filter(User.id == user_id))
+    user = result.scalars().first()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+        
+    # 2. Eliminar el historial en cascada manualmente
+    # Borrar reservas
+    await db.execute(delete(Booking).filter(Booking.user_id == user_id))
+    # Borrar suscripciones
+    await db.execute(delete(UserSubscription).filter(UserSubscription.user_id == user_id))
+    
+    # 3. Eliminar al usuario
+    await db.delete(user)
+    await db.commit()
+    
+    return None
 # ==========================================
 # 2. REGISTRO INTERNO (COACH & STAFF)
 # ==========================================

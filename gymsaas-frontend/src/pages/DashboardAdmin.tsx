@@ -25,7 +25,7 @@ interface User {
   is_active: boolean;
   plan_name?: string;
   plan_price?: number;
-  plan_expiration?: string; // Nuevo campo para la fecha de vencimiento
+  plan_expiration?: string; 
 }
 
 interface Plan {
@@ -94,6 +94,9 @@ export default function DashboardAdmin() {
   const [newStaffFormData, setNewStaffFormData] = useState<NewStaffFormData>({
     first_name: '', last_name: '', email: '', password: '', role: 'COACH'
   });
+
+  // Estado para el Modal de Confirmación de Eliminación
+  const [userToDelete, setUserToDelete] = useState<{id: string, name: string} | null>(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -224,7 +227,7 @@ export default function DashboardAdmin() {
         const selectedPlan = plans.find(p => p.id === newUserFormData.plan_id);
         newUser.plan_name = selectedPlan?.name;
         newUser.plan_price = Number(newUserFormData.amount_paid);
-        newUser.plan_expiration = subRes.data.renews_at; // Tomamos la fecha generada por el backend
+        newUser.plan_expiration = subRes.data.renews_at; 
       }
 
       setUsers([newUser, ...users]);
@@ -266,6 +269,31 @@ export default function DashboardAdmin() {
       alert('¡Miembro del equipo registrado con éxito!');
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Error al registrar al staff. Verifica los datos.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // ================= ELIMINAR USUARIO =================
+  const confirmDeleteUser = (id: string, name: string) => {
+    setUserToDelete({ id, name }); // Abre el modal guardando los datos
+  };
+
+  const executeDeleteUser = async () => {
+    if (!userToDelete) return;
+    
+    setIsSubmitting(true);
+    try {
+      const token = localStorage.getItem('token');
+      await api.delete(`/auth/users/${userToDelete.id}`, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      });
+      
+      // Actualizamos la tabla
+      setUsers(users.filter(user => user.id !== userToDelete.id));
+      setUserToDelete(null); // Cerramos el modal
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Error al eliminar el usuario.');
     } finally {
       setIsSubmitting(false);
     }
@@ -416,24 +444,25 @@ export default function DashboardAdmin() {
                 <th className="p-4">Membresía</th>
                 {roleFilter !== 'STAFF' && <th className="p-4">Vencimiento</th>}
                 <th className="p-4 text-center">Estado</th>
+                <th className="p-4 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={roleFilter !== 'STAFF' ? 6 : 5} className="p-8 text-center text-gray-400 font-bold text-sm">
+                  <td colSpan={roleFilter !== 'STAFF' ? 7 : 6} className="p-8 text-center text-gray-400 font-bold text-sm">
                     <FontAwesomeIcon icon={faBars} className="animate-pulse mr-2" /> Cargando base de datos...
                   </td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={roleFilter !== 'STAFF' ? 6 : 5} className="p-8 text-center text-gray-400 font-bold text-sm">No hay usuarios bajo este filtro.</td>
+                  <td colSpan={roleFilter !== 'STAFF' ? 7 : 6} className="p-8 text-center text-gray-400 font-bold text-sm">No hay usuarios bajo este filtro.</td>
                 </tr>
               ) : (
                 filteredUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 transition-colors group cursor-pointer">
+                  <tr key={user.id} className="hover:bg-gray-50 transition-colors group">
                     <td className="p-4"><div className="font-extrabold text-black text-sm">{user.first_name} {user.last_name}</div></td>
-                    <td className="p-4 text-sm font-medium text-gray-500 group-hover:text-black transition-colors">{user.email}</td>
+                    <td className="p-4 text-sm font-medium text-gray-500">{user.email}</td>
                     <td className="p-4"><span className="inline-block bg-gray-100 text-black border border-gray-200 rounded-md px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide">{user.roles.join(', ')}</span></td>
                     
                     <td className="p-4">
@@ -447,7 +476,6 @@ export default function DashboardAdmin() {
                       )}
                     </td>
 
-                    {/* NUEVA COLUMNA DE VENCIMIENTO */}
                     {roleFilter !== 'STAFF' && (
                       <td className="p-4">
                         {user.plan_expiration ? (
@@ -466,6 +494,16 @@ export default function DashboardAdmin() {
                       ) : (
                         <span className="inline-flex items-center text-gray-500 bg-gray-100 border border-gray-200 px-2 py-1 rounded-md text-[10px] font-extrabold uppercase tracking-wide"><span className="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1.5"></span>Inactivo</span>
                       )}
+                    </td>
+
+                    <td className="p-4 text-center">
+                      <button 
+                        onClick={() => confirmDeleteUser(user.id, user.first_name)} 
+                        className="text-gray-400 hover:text-red-500 transition-colors bg-white border border-gray-200 hover:border-red-200 p-2 rounded-lg shadow-sm"
+                        title="Eliminar Usuario"
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -667,6 +705,40 @@ export default function DashboardAdmin() {
                 <button type="submit" className="flex-1 bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-sm">Guardar Plan</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL DE CONFIRMACIÓN DE ELIMINACIÓN ================= */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden text-center p-8">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <FontAwesomeIcon icon={faTrash} className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-extrabold text-black mb-2">
+              ¿Eliminar a {userToDelete.name}?
+            </h2>
+            <p className="text-sm font-medium text-gray-500 mb-8">
+              Esta acción eliminará permanentemente su cuenta, membresía e historial de reservas. No se puede deshacer.
+            </p>
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setUserToDelete(null)}
+                disabled={isSubmitting}
+                className="flex-1 bg-white border border-gray-300 text-gray-700 font-extrabold py-3 px-4 rounded-xl hover:bg-gray-50 transition shadow-sm disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={executeDeleteUser}
+                disabled={isSubmitting}
+                className="flex-1 bg-red-600 text-white font-extrabold py-3 px-4 rounded-xl hover:bg-red-700 transition shadow-sm disabled:bg-red-400 flex justify-center items-center gap-2"
+              >
+                {isSubmitting ? <FontAwesomeIcon icon={faBars} className="animate-spin" /> : 'Sí, eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
