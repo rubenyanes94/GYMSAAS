@@ -13,6 +13,7 @@ import ScheduleCalendar from './components/operations/ScheduleCalendar';
 import CashRegister from './components/finances/CashRegister';
 import ClientBookingFeed from './components/operations/ClientBookingFeed';
 import Profile from './pages/Profile';
+import FinancesDashboard from './components/finances/FinancesDashboard';
 
 // 3. Layout Principal del Panel
 import AdminLayout from './components/layouts/AdminLayout';
@@ -53,6 +54,7 @@ function App() {
           
           {/* Ruta de Caja y Pagos: /admin/caja */}
           <Route path="caja" element={<CashRegister />} />
+          <Route path="/admin/finanzas" element={<FinancesDashboard />} />
         </Route>
 
         {/* Ruta Comodín para páginas no encontradas (404) */}
