@@ -300,3 +300,10 @@ class ResourceBookingResponseExtended(BaseModel):
 
     class Config:
         from_attributes = True
+
+class TransactionCreate(BaseModel):
+    user_id: UUID
+    plan_id: Optional[UUID] = None
+    amount: float
+    method: str
+    status: str = "COMPLETED"

@@ -314,7 +314,6 @@ class FeedComment(Base):
     
     result = relationship("AthleteBlockResult", back_populates="comments")
 
-# Agrégalo al final de schema.py (Sección de Configuración del Gimnasio)
 
 class GymProfile(Base):
     __tablename__ = "gym_profile"
@@ -366,3 +365,18 @@ class ResourceBookingServices(Base):
 
     user = relationship("User")
     resource = relationship("ResourceServices")
+
+# ==========================================
+# MÓDULO: SERVICIOS Y WORKSPACES
+# ==========================================
+
+class Payment(Base):
+    __tablename__ = "payments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id", ondelete="SET NULL"), nullable=True)
+    amount = Column(Float, nullable=False)
+    method = Column(String, nullable=False) # 'CASH', 'ZELLE', 'CARD', 'TRANSFER'
+    status = Column(String, default="COMPLETED") # 'COMPLETED', 'PENDING'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

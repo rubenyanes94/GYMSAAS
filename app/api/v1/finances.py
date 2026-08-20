@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.database import get_db
-from app.models.schema import User, UserRole, Plan, UserSubscription
+from app.models.schema import User, UserRole, Plan, UserSubscription,Payment
 from app.schemas.payloads import (
     PlanCreate, PlanUpdate, PlanResponse,
-    UserSubscriptionCreate, UserSubscriptionResponse
+    UserSubscriptionCreate, UserSubscriptionResponse,TransactionCreate
 )
 
 CARACAS_TZ = ZoneInfo("America/Caracas")
@@ -170,3 +170,72 @@ async def assign_subscription_to_athlete(
     await db.refresh(subscription)
     
     return subscription
+
+
+# ==========================================
+# REGISTRO Y LECTURA DE TRANSACCIONES (PAGOS)
+# ==========================================
+
+@router.post("/transactions", status_code=status.HTTP_201_CREATED)
+async def create_transaction(
+    tx_in: TransactionCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Registra un nuevo pago en el sistema (Caja / Facturación).
+    """
+    new_payment = Payment(
+        user_id=tx_in.user_id,
+        plan_id=tx_in.plan_id,
+        amount=tx_in.amount,
+        method=tx_in.method,
+        status=tx_in.status
+    )
+    
+    db.add(new_payment)
+    await db.commit()
+    await db.refresh(new_payment)
+    
+    return {"message": "Transacción registrada exitosamente", "id": new_payment.id}
+
+
+@router.get("/transactions")
+async def get_transactions(db: AsyncSession = Depends(get_db)):
+    """
+    Obtiene todo el historial de pagos cruzando datos con Usuarios y Planes
+    para alimentar el FinancesDashboard.
+    """
+    # Hacemos un JOIN para traer el nombre del usuario y el nombre del plan en una sola consulta
+    query = (
+        select(
+            Payment.id,
+            Payment.amount,
+            Payment.created_at.label("date"),
+            Payment.method,
+            Payment.status,
+            User.first_name,
+            User.last_name,
+            Plan.name.label("plan_name")
+        )
+        .join(User, User.id == Payment.user_id)
+        .outerjoin(Plan, Plan.id == Payment.plan_id)
+        .order_by(Payment.created_at.desc())
+    )
+    
+    result = await db.execute(query)
+    rows = result.all()
+    
+    # Formateamos la respuesta exactamente como la espera tu componente React
+    transactions = []
+    for row in rows:
+        transactions.append({
+            "id": str(row.id),
+            "athlete_name": f"{row.first_name} {row.last_name}",
+            "plan_name": row.plan_name if row.plan_name else "Concepto General",
+            "amount": row.amount,
+            "date": row.date.isoformat(),
+            "method": row.method,
+            "status": row.status
+        })
+        
+    return transactions

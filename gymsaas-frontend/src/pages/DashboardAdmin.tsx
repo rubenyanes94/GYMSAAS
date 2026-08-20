@@ -198,9 +198,10 @@ export default function DashboardAdmin() {
     }));
   };
 
-  const handleSaveUser = async (e: React.FormEvent) => {
+ const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    
     try {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
@@ -213,28 +214,60 @@ export default function DashboardAdmin() {
         birth_date: newUserFormData.birth_date ? newUserFormData.birth_date : null
       };
       
+      // 1. Registrar al usuario
       const userRes = await api.post('/auth/register', userPayload, { headers });
       const newUser: User = userRes.data;
 
+      // Validamos que el backend nos haya devuelto el ID del usuario recién creado
+      if (!newUser || !newUser.id) {
+        throw new Error("El usuario se creó, pero el servidor no devolvió su ID para asignarle el plan.");
+      }
+
       if (newUserFormData.plan_id) {
+        // 2. Asignar Suscripción
         const subscriptionPayload = {
           user_id: newUser.id,
           plan_id: newUserFormData.plan_id
         };
         const subRes = await api.post('/finances/subscriptions', subscriptionPayload, { headers });
         
-        // Actualización optimista de la tabla
+        // 3. Registrar el Pago en Finanzas (CORREGIDO)
+        // Usamos parseFloat y un fallback a 0 para evitar que un string vacío envíe un 'NaN' que el backend rechace
+        const amountToCharge = parseFloat(newUserFormData.amount_paid) || 0;
+        
+        const transactionPayload = {
+          user_id: newUser.id,
+          plan_id: newUserFormData.plan_id,
+          amount: amountToCharge,
+          method: newUserFormData.payment_method || 'CASH',
+          status: "COMPLETED"
+        };
+        
+        await api.post('/finances/transactions', transactionPayload, { headers });
+        
+        // 4. Actualización optimista de la tabla
         const selectedPlan = plans.find(p => p.id === newUserFormData.plan_id);
         newUser.plan_name = selectedPlan?.name;
-        newUser.plan_price = Number(newUserFormData.amount_paid);
+        newUser.plan_price = amountToCharge;
         newUser.plan_expiration = subRes.data.renews_at; 
       }
 
+      // Actualizamos la vista y cerramos el modal
       setUsers([newUser, ...users]);
       setIsUserModalOpen(false);
-      alert('¡Cliente registrado y activado con éxito!');
+      
+      // Limpiamos el formulario para el próximo registro
+      setNewUserFormData({ 
+        first_name: '', last_name: '', email: '', password: '', 
+        birth_date: '', plan_id: '', payment_method: 'CASH', amount_paid: '' 
+      });
+      
+      alert('¡Cliente registrado, suscrito y cobrado con éxito!');
+      
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Error al registrar al cliente. Verifica los datos.');
+      console.error("Error procesando el registro/pago:", err.response?.data || err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Error al procesar el registro y el pago.';
+      alert(`Hubo un problema: ${errorMsg}`);
     } finally {
       setIsSubmitting(false);
     }

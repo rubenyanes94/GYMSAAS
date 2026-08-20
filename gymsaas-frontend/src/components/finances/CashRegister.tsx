@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
 
-// Interfaces basadas en tu esquema de base de datos
+// Interfaces
 interface User {
   id: string;
   first_name: string;
@@ -14,9 +14,20 @@ interface Plan {
   id: string;
   name: string;
   category: string;
+  price: number; 
   credits_per_week: number;
   validity_days: number;
   is_unlimited: boolean;
+}
+
+// NUEVA INTERFAZ: Para manejar el historial del turno actual
+interface LocalMovement {
+  id: string;
+  athleteName: string;
+  planName: string;
+  amount: number;
+  method: string;
+  time: string;
 }
 
 export default function CashRegister() {
@@ -27,6 +38,9 @@ export default function CashRegister() {
   const [selectedUser, setSelectedUser] = useState<string>('');
   const [selectedPlan, setSelectedPlan] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'ZELLE' | 'CARD' | 'TRANSFER'>('CASH');
+  
+  // Estado para los movimientos de ESTA sesión/caja
+  const [recentMovements, setRecentMovements] = useState<LocalMovement[]>([]);
   
   // Estados de la UI
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -64,21 +78,44 @@ export default function CashRegister() {
 
     setIsProcessing(true);
     try {
-      // Consumimos el endpoint exacto de tu backend (finances.py)
+      // a. Asignar o renovar la suscripción
       await api.post('/finances/subscriptions', {
         user_id: selectedUser,
         plan_id: selectedPlan
       });
       
+      // b. Buscar datos para registrar el pago y actualizar la UI
+      const planDetails = plans.find(p => p.id === selectedPlan);
+      const userDetails = users.find(u => u.id === selectedUser);
+      const amountToCharge = planDetails?.price || 0;
+
+      // c. Registrar el movimiento financiero en el backend
+      await api.post('/finances/transactions', {
+        user_id: selectedUser,
+        plan_id: selectedPlan,
+        amount: amountToCharge,
+        method: paymentMethod,
+        status: "COMPLETED"
+      });
+      
+      // d. Agregar a la lista de "Últimos Movimientos" de esta sesión (máximo los últimos 5)
+      const newMovement: LocalMovement = {
+        id: Date.now().toString(),
+        athleteName: `${userDetails?.first_name} ${userDetails?.last_name}`,
+        planName: planDetails?.name || 'Membresía',
+        amount: amountToCharge,
+        method: paymentMethod,
+        time: new Date().toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
+      };
+      
+      setRecentMovements(prev => [newMovement, ...prev].slice(0, 5));
+      
       showToast("¡Pago procesado y membresía activada!");
       
-      // Limpiar formulario tras el éxito
+      // e. Limpiar formulario tras el éxito
       setSelectedUser('');
       setSelectedPlan('');
       setPaymentMethod('CASH');
-
-      // Aquí a futuro podrías registrar el movimiento en una tabla de ingresos (Ledger)
-      // await api.post('/finances/transactions', { ... })
 
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || "Ocurrió un error al procesar el pago.";
@@ -160,7 +197,10 @@ export default function CashRegister() {
                             : 'border-gray-200 bg-white text-black hover:border-gray-400'
                         }`}
                       >
-                        <h3 className="font-extrabold text-lg leading-tight">{plan.name}</h3>
+                        <div className="flex justify-between items-start mb-1">
+                          <h3 className="font-extrabold text-lg leading-tight">{plan.name}</h3>
+                          <span className="font-black text-lg">${plan.price}</span>
+                        </div>
                         <p className={`text-xs mt-1 font-bold ${selectedPlan === plan.id ? 'text-gray-300' : 'text-gray-500'}`}>
                           {plan.is_unlimited ? 'Ilimitado' : `${plan.credits_per_week} clases / sem`}
                         </p>
@@ -217,7 +257,7 @@ export default function CashRegister() {
           </div>
         </div>
 
-        {/* COLUMNA DERECHA: ESTADO RÁPIDO (MOCK) */}
+        {/* COLUMNA DERECHA: ESTADO RÁPIDO (TURNO Y MOVIMIENTOS) */}
         <div className="space-y-6">
           <div className="bg-black text-white rounded-2xl p-6 shadow-md">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-1">Turno Actual</h3>
@@ -229,17 +269,41 @@ export default function CashRegister() {
               </div>
               <div className="flex justify-between items-center border-b border-gray-800 pb-2">
                 <span className="text-sm font-medium text-gray-300">Fecha</span>
-                <span className="font-bold">{new Date().toLocaleDateString()}</span>
+                <span className="font-bold">{new Date().toLocaleDateString('es-VE')}</span>
               </div>
             </div>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
-             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest mb-4">Últimos Movimientos</h3>
-             <div className="flex flex-col items-center justify-center py-6 text-gray-400 text-center">
-                <svg className="w-12 h-12 mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                <p className="text-sm font-medium">Los movimientos de hoy aparecerán aquí tras procesar pagos.</p>
+             <div className="flex justify-between items-center mb-4">
+               <h3 className="text-sm font-bold text-gray-500 uppercase tracking-widest">Últimos Movimientos</h3>
+               <span className="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded-md">{recentMovements.length}</span>
              </div>
+             
+             {recentMovements.length === 0 ? (
+               <div className="flex flex-col items-center justify-center py-6 text-gray-400 text-center">
+                  <svg className="w-12 h-12 mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <p className="text-sm font-medium">Los movimientos de hoy aparecerán aquí tras procesar pagos.</p>
+               </div>
+             ) : (
+               <ul className="space-y-4">
+                 {recentMovements.map((mov) => (
+                   <li key={mov.id} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0 animate-fade-in">
+                     <div className="flex justify-between items-start mb-1">
+                       <span className="font-extrabold text-sm text-black">{mov.athleteName}</span>
+                       <span className="font-black text-sm text-green-600">+${mov.amount}</span>
+                     </div>
+                     <div className="flex justify-between items-center">
+                       <span className="text-xs font-bold text-gray-500">{mov.planName}</span>
+                       <div className="flex gap-2">
+                         <span className="text-[10px] font-extrabold bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 uppercase">{mov.method}</span>
+                         <span className="text-[10px] font-bold text-gray-400">{mov.time}</span>
+                       </div>
+                     </div>
+                   </li>
+                 ))}
+               </ul>
+             )}
           </div>
         </div>
 
