@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faUsers, faUserClock, faUserTimes, faCakeCandles, faSearch, 
   faDownload, faEnvelope, faCheckCircle, faExclamationTriangle, 
-  faTimesCircle, faRobot, faFileExcel, faFilePdf,
+  faTimesCircle, faRobot, faFileExcel, faFilePdf
 } from '@fortawesome/free-solid-svg-icons';
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons';
 import api from '../services/api';
@@ -13,7 +13,7 @@ interface Athlete {
   first_name: string;
   last_name: string;
   email: string;
-  phone?: string; // IMPORTANTE: Asegúrate de guardar el teléfono en tu BD
+  phone?: string; 
   birth_date: string | null;
   roles: string[];
   is_active: boolean;
@@ -76,10 +76,20 @@ export default function AthletesDashboard() {
     setSuccessModal({ isOpen: true, message: '¡Correos copiados al portapapeles con éxito!' });
   };
 
-  // Generador de Link para WhatsApp
-  const generateWhatsAppLink = (athlete: Athlete) => {
+  // Generador de Link para WhatsApp (Dinámico según el estado comercial)
+  const generateWhatsAppLink = (athlete: Athlete, statusType: string) => {
     const phone = athlete.phone ? athlete.phone.replace(/\D/g, '') : '';
-    const message = `¡Hola ${athlete.first_name}! 🏋️‍♂️ Notamos que tu plan "${athlete.plan_name}" está por vencer. Si renuevas hoy, mantienes tu racha de entrenamiento intacta. ¿Te ayudamos con la renovación?`;
+    let message = '';
+
+    if (statusType === 'EXPIRING') {
+      message = `¡Hola ${athlete.first_name}! 🏋️‍♂️ Notamos que tu plan "${athlete.plan_name}" está por vencer. Si renuevas hoy, mantienes tu racha de entrenamiento intacta. ¿Te ayudamos con la renovación?`;
+    } else if (statusType === 'EXPIRED') {
+      message = `¡Hola ${athlete.first_name}! 🏋️‍♂️ Tu plan ha vencido. ¡Te extrañamos por el box! Escríbenos para renovar y volver a la acción. 🔥`;
+    } else {
+      // Caso: SIN PLAN ('NONE')
+      message = `¡Hola ${athlete.first_name}! 🏋️‍♂️ Vemos que estás en nuestra comunidad pero no tienes un plan activo. ¡Nos encantaría verte entrenar! ¿Te gustaría conocer nuestras opciones y promociones de este mes?`;
+    }
+
     return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   };
 
@@ -174,37 +184,65 @@ export default function AthletesDashboard() {
             </div>
             <div>
               <h2 className="text-lg font-extrabold text-white">Asistente Comercial</h2>
-              <p className="text-xs font-medium text-gray-400">Oportunidades detectadas para hoy.</p>
+              <p className="text-xs font-medium text-gray-400">Oportunidades de ingresos detectadas para hoy.</p>
             </div>
           </div>
           
-          <div className="space-y-3 overflow-y-auto max-h-48 pr-2">
-            {athletes.filter(a => getAthleteStatus(a.plan_expiration).type === 'EXPIRING').length === 0 && (
-               <div className="p-4 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-300">
-                 Todo al día. No hay membresías en riesgo inminente.
-               </div>
-            )}
-            {athletes.filter(a => getAthleteStatus(a.plan_expiration).type === 'EXPIRING').slice(0, 3).map(a => (
-              <div key={a.id} className="p-4 bg-white/5 border border-white/10 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition hover:bg-white/10">
-                <div>
-                  <p className="text-sm font-extrabold">{a.first_name} {a.last_name}</p>
-                  <p className="text-xs text-gray-400 font-medium mt-1">El plan <span className="text-white">{a.plan_name}</span> vence pronto. Envíale un recordatorio amigable.</p>
-                </div>
-                <a 
-                  href={generateWhatsAppLink(a)} 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="shrink-0 bg-[#25D366] text-white text-xs font-extrabold py-2 px-4 rounded-lg hover:bg-[#1ebd5a] transition flex items-center gap-2"
-                >
-                  <FontAwesomeIcon icon={faWhatsapp} className="text-lg" /> Contactar
-                </a>
-              </div>
-            ))}
+          <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2">
+            {(() => {
+              const opportunities = athletes.filter(a => {
+                const type = getAthleteStatus(a.plan_expiration).type;
+                return type === 'EXPIRING' || type === 'EXPIRED' || type === 'NONE';
+              });
+
+              if (opportunities.length === 0) {
+                return (
+                  <div className="p-4 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-300">
+                    Todo al día. No hay oportunidades comerciales pendientes por el momento.
+                  </div>
+                );
+              }
+
+              return opportunities.slice(0, 4).map(a => {
+                const status = getAthleteStatus(a.plan_expiration);
+                
+                let suggestionText = '';
+                if(status.type === 'EXPIRING') suggestionText = `Su plan ${a.plan_name} vence pronto. Envíale un recordatorio amigable.`;
+                else if(status.type === 'EXPIRED') suggestionText = `Su plan está vencido. Oportunidad de recuperación (Win-back).`;
+                else suggestionText = `No tiene plan activo. Oportunidad ideal para ofrecer un paquete inicial.`;
+
+                return (
+                  <div key={a.id} className="p-4 bg-white/5 border border-white/10 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition hover:bg-white/10">
+                    <div>
+                      <p className="text-sm font-extrabold flex items-center gap-2">
+                        {a.first_name} {a.last_name}
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded border tracking-wide ${
+                          status.type === 'NONE' ? 'bg-gray-800 text-gray-300 border-gray-600' : 
+                          status.type === 'EXPIRED' ? 'bg-red-900/40 text-red-300 border-red-800' : 
+                          'bg-amber-900/40 text-amber-300 border-amber-800'
+                        }`}>
+                          {status.type === 'NONE' ? 'SIN PLAN' : status.type === 'EXPIRED' ? 'VENCIDO' : 'POR VENCER'}
+                        </span>
+                      </p>
+                      <p className="text-xs text-gray-400 font-medium mt-1.5">{suggestionText}</p>
+                    </div>
+                    <a 
+                      href={generateWhatsAppLink(a, status.type)} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="shrink-0 bg-[#25D366] text-white text-xs font-extrabold py-2 px-4 rounded-lg hover:bg-[#1ebd5a] transition flex items-center gap-2"
+                    >
+                      <FontAwesomeIcon icon={faWhatsapp} className="text-lg" /> Contactar
+                    </a>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
 
-      {/* TABLA CRM (Sin cambios estructurales mayores, solo integración visual) */}
+      {/* TABLA CRM */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center bg-gray-50/50 gap-4">
           <h2 className="text-lg font-extrabold text-black w-full sm:w-auto">Directorio de Clientes</h2>
