@@ -58,7 +58,7 @@ export default function ScheduleCalendar() {
   
   const [classes, setClasses] = useState<UIClassSession[]>([]);
   const [coaches, setCoaches] = useState<GymUser[]>([]); 
-  const [athletes, setAthletes] = useState<GymUser[]>([]); // Estado para los clientes
+  const [athletes, setAthletes] = useState<GymUser[]>([]); 
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -103,62 +103,77 @@ export default function ScheduleCalendar() {
   const shortDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
   // ==========================================
-  // 1. OBTENER CLASES, COACHES Y ATLETAS
+  // 1. OBTENER CLASES Y COACHES CON AXIOS SEGURO
   // ==========================================
   const fetchData = async () => {
     setIsLoading(true);
+    let loadedCoaches: GymUser[] = [];
+
     try {
-      const [classesRes, usersRes] = await Promise.all([
-        api.get('/operations/classes'),
-        api.get('/auth/users')
+      // Usamos Promise.allSettled para que si una llamada falla, la otra igual procese su data
+      const [usersResult, classesResult] = await Promise.allSettled([
+        api.get('/auth/users/'),
+        api.get('/classes')
       ]);
-      
-      const allUsers: GymUser[] = Array.isArray(usersRes.data) ? usersRes.data : [];
-      
-      // Separar Coaches de Atletas
-      const eligibleCoaches = allUsers.filter(user => 
-        user.roles.includes('COACH') || user.roles.includes('STAFF') || user.roles.includes('BOX_OWNER')
-      );
-      const eligibleAthletes = allUsers.filter(user => 
-        user.roles.includes('ATHLETE')
-      );
-      
-      setCoaches(eligibleCoaches);
-      setAthletes(eligibleAthletes);
 
-      const rawClasses = Array.isArray(classesRes.data) 
-        ? classesRes.data 
-        : (classesRes.data?.items || classesRes.data?.data || []);
-
-      const formattedData: UIClassSession[] = rawClasses.map((cls: ClassScheduleResponse) => {
-        const start = new Date(cls.start_time);
-        const end = new Date(cls.end_time);
-        const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      // Procesar usuarios y coaches
+      if (usersResult.status === 'fulfilled') {
+        const allUsers: GymUser[] = Array.isArray(usersResult.value.data) ? usersResult.value.data : [];
         
-        const coach = eligibleCoaches.find(c => c.id === cls.coach_id);
-        const coachName = coach ? `${coach.first_name} ${coach.last_name}` : 'Instructor Asignado';
-        const bookedCount = cls.capacity - (cls.available_spots ?? cls.capacity);
+        loadedCoaches = allUsers.filter(user => {
+          const roles = Array.isArray(user.roles) ? user.roles.map(r => r.toUpperCase()) : [];
+          return roles.includes('COACH') || roles.includes('STAFF') || roles.includes('BOX_OWNER') || roles.length === 0;
+        });
+        
+        const eligibleAthletes = allUsers.filter(user => {
+          const roles = Array.isArray(user.roles) ? user.roles.map(r => r.toUpperCase()) : [];
+          return roles.includes('ATHLETE') || roles.length === 0;
+        });
+        
+        setCoaches(loadedCoaches);
+        setAthletes(eligibleAthletes);
+      } else {
+        console.warn("No se pudieron cargar los usuarios:", usersResult.reason);
+      }
 
-        return {
-          ...cls,
-          capacity: cls.capacity || 0,
-          booked: bookedCount,
-          instructorName: coachName,
-          day: days[start.getDay()],
-          dateNum: start.getDate(),
-          formattedTime: `${formatTime(start)} - ${formatTime(end)}`
-        };
-      });
+      // Procesar clases
+      if (classesResult.status === 'fulfilled') {
+        const rawData = classesResult.value.data;
+        const rawClasses = Array.isArray(rawData) ? rawData : (rawData?.items || rawData?.data || []);
 
-      formattedData.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+        const formattedData: UIClassSession[] = rawClasses.map((cls: ClassScheduleResponse) => {
+          const start = new Date(cls.start_time);
+          const end = new Date(cls.end_time);
+          const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+          
+          const coach = loadedCoaches.find(c => c.id === cls.coach_id);
+          const coachName = coach ? `${coach.first_name} ${coach.last_name}` : 'Instructor Asignado';
+          const bookedCount = cls.capacity - (cls.available_spots ?? cls.capacity);
 
-      setClasses(formattedData);
-      setError('');
+          return {
+            ...cls,
+            capacity: cls.capacity || 0,
+            booked: bookedCount,
+            instructorName: coachName,
+            day: days[start.getDay()],
+            dateNum: start.getDate(),
+            formattedTime: `${formatTime(start)} - ${formatTime(end)}`
+          };
+        });
+
+        formattedData.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+        setClasses(formattedData);
+        setError('');
+      } else {
+        console.error("Error cargando clases:", classesResult.reason);
+        setError('No se pudieron obtener las clases del servidor.');
+      }
+
     } catch (err: any) {
-      console.error(err);
-      setError(err.response?.data?.detail || 'Error al sincronizar datos con el servidor.');
+      console.error("Error crítico en fetchData:", err);
+      setError('Error al sincronizar datos con el servidor.');
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // GARANTIZA QUE EL SPINNER DESAPAREZCA SIEMPRE
     }
   };
 
@@ -184,14 +199,14 @@ export default function ScheduleCalendar() {
     setError('');
     
     try {
-      await api.post(`/operations/classes/${classToBook.id}/book`, {
+      await api.post(`/classes/${classToBook.id}/book`, {
         user_id: selectedAthleteId
       });
       
       setIsAddClientModalOpen(false);
       setSuccessMessage('El cliente ha sido inscrito en la clase exitosamente.');
       setShowSuccessModal(true);
-      await fetchData(); // Refrescar para ver el nuevo cupo ocupado
+      await fetchData(); 
       
     } catch (err: any) {
       console.error(err);
@@ -244,7 +259,7 @@ export default function ScheduleCalendar() {
     setRosterData([]);
 
     try {
-      const response = await api.get(`/operations/classes/${cls.id}/roster`);
+      const response = await api.get(`/classes/${cls.id}/roster`);
       setRosterData(response.data);
     } catch (err) {
       console.error("Error obteniendo la lista de asistencia:", err);
@@ -283,7 +298,7 @@ export default function ScheduleCalendar() {
           room: formData.room || null
         };
 
-        await api.put(`/operations/classes/${editingClassId}`, payload);
+        await api.put(`/classes/${editingClassId}`, payload);
         setSuccessMessage('La clase ha sido actualizada exitosamente.');
 
       } else {
@@ -314,7 +329,7 @@ export default function ScheduleCalendar() {
               end_time: toLocalISOString(endDateTime),
               room: formData.room || null
             };
-            return api.post('/operations/classes', payload);
+            return api.post('/classes', payload);
           });
 
           await Promise.all(promises);
@@ -333,7 +348,7 @@ export default function ScheduleCalendar() {
             room: formData.room || null
           };
 
-          await api.post('/operations/classes', payload);
+          await api.post('/classes', payload);
           setSuccessMessage('El horario ha sido guardado exitosamente.');
         }
       }
@@ -367,7 +382,7 @@ export default function ScheduleCalendar() {
   const executeDeleteClass = async () => {
     if (!classToDelete) return;
     try {
-      await api.delete(`/operations/classes/${classToDelete}`);
+      await api.delete(`/classes/${classToDelete}`);
       setIsDeleteModalOpen(false);
       setClassToDelete(null);
       await fetchData(); 
@@ -474,7 +489,6 @@ export default function ScheduleCalendar() {
                                 <span className="uppercase tracking-wider">{cls.room || 'Sin Sala'}</span>
                                 <span>Coach: {cls.instructorName}</span>
                                 
-                                {/* BOTÓN DE ASISTENCIA INTERACTIVO */}
                                 <button 
                                   onClick={() => openRosterModal(cls)}
                                   className="text-black hover:underline transition-colors focus:outline-none"
@@ -507,7 +521,6 @@ export default function ScheduleCalendar() {
                           <div className="my-4 h-px w-full bg-gray-200 border-b border-dashed border-gray-300"></div>
                           
                           <div className="flex flex-wrap gap-2">
-                            {/* NUEVO BOTÓN APUNTAR CLIENTE */}
                             <button 
                               onClick={() => openAddClientModal(cls)}
                               className="rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 shadow-sm hover:bg-gray-100 transition-colors"
