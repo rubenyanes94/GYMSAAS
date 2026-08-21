@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import api from '../services/api';
 import { 
   faSearch, 
   faCommentDots, 
@@ -9,23 +11,63 @@ import {
   faSpa,
   faHandHoldingHeart, 
   faHome, 
-  faClipboardList, 
   faUser, 
   faBars,
   faFire,
   faStopwatch,
-  faTrophy
+  faTrophy,
+  faHeartPulse
 } from '@fortawesome/free-solid-svg-icons';
 
 export default function Home() {
   const navigate = useNavigate();
 
-  // Simulación de la fecha actual
+  // Estados para la carga de datos
+  const [feedWorkouts, setFeedWorkouts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fecha actual (Visual)
   const today = new Date().toLocaleDateString('es-ES', { 
     weekday: 'long', 
     day: 'numeric', 
     month: 'long' 
   });
+
+  useEffect(() => {
+    const fetchWorkouts = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          navigate('/login');
+          return;
+        }
+
+        // Decodificar JWT para obtener el ID del usuario
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(window.atob(base64));
+        const userId = payload.sub;
+
+        // Obtener programaciones del backend
+        const res = await api.get('/workouts', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        // Filtrar WODs: Solo los publicados y que sean generales (sin athlete_id) o personalizados para el usuario
+        const availableWorkouts = res.data.filter((w: any) => 
+          w.is_published && (!w.athlete_id || w.athlete_id === userId)
+        );
+
+        setFeedWorkouts(availableWorkouts);
+      } catch (error) {
+        console.error("Error al cargar la programación:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchWorkouts();
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative pb-20">
@@ -62,7 +104,6 @@ export default function Home() {
 
       {/* ================= PANEL PRINCIPAL (LOGO + MENÚ GRID) ================= */}
       <div className="bg-white px-2 py-8 border-b border-gray-200 flex items-center shadow-sm z-10 relative">
-        
         {/* Izquierda: Logo Level Caracas */}
         <div className="flex flex-col items-center justify-center w-[40%] border-r border-gray-100">
           <div className="w-24 h-24 bg-black rounded-full flex flex-col items-center justify-center text-white mb-3 shadow-lg">
@@ -74,7 +115,6 @@ export default function Home() {
 
         {/* Derecha: Opciones (Grid 2x2) */}
         <div className="w-[60%] grid grid-cols-2 gap-y-8 gap-x-2 px-2">
-          
           <button onClick={() => navigate('/client/reservas')} className="flex flex-col items-center group">
             <div className="mb-2 text-gray-700 group-hover:text-black transition-colors">
               <FontAwesomeIcon icon={faCalendarCheck} className="w-8 h-8" />
@@ -102,7 +142,6 @@ export default function Home() {
             </div>
             <span className="text-sm text-gray-600 font-bold group-hover:text-black">Servicios</span>
           </button>
-
         </div>
       </div>
 
@@ -120,64 +159,115 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Lista de Bloques (Mock data basado en tu schema de ProgramBlocks) */}
-        <div className="space-y-4">
-          
-          {/* Bloque 1: Fuerza / Weightlifting */}
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-2 mb-3 border-b border-gray-100 pb-3">
-              <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center">
-                <FontAwesomeIcon icon={faDumbbell} className="text-black w-3.5 h-3.5" />
-              </div>
-              <h3 className="text-sm font-extrabold text-black uppercase tracking-wide">A. Weightlifting</h3>
-              <span className="ml-auto text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-1 rounded-md tracking-widest">
-                15 MIN
-              </span>
+        {/* Carga y Lista de Programaciones Dinámicas */}
+        <div className="space-y-6">
+          {isLoading ? (
+            <div className="text-center py-8">
+               <span className="animate-pulse font-bold text-gray-400">Cargando programación...</span>
             </div>
-            <div className="pl-1">
-              <p className="text-sm font-bold text-black mb-1">Back Squat</p>
-              <p className="text-xs text-gray-500 leading-relaxed font-medium">
-                5 sets de 5 repeticiones.<br/>
-                Comienza al 65% y aumenta progresivamente hasta tu 80% del 1RM. Descansa 90 seg entre sets.
-              </p>
+          ) : feedWorkouts.length === 0 ? (
+            <div className="text-center py-10 bg-white rounded-2xl border border-gray-200 border-dashed">
+              <FontAwesomeIcon icon={faCalendarCheck} className="text-3xl text-gray-300 mb-3" />
+              <p className="text-sm font-bold text-gray-500">Día de Descanso Activo</p>
+              <p className="text-xs text-gray-400 mt-1">No hay entrenamientos publicados para hoy.</p>
             </div>
-          </div>
+          ) : (
+            feedWorkouts.map((workout) => (
+              <div key={workout.id} className="mb-8">
+                
+                {/* Encabezado del Track (Categoría y Fecha) */}
+                <div className="flex items-center justify-between mb-4 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-black text-white px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest">
+                      {workout.category}
+                    </span>
+                    {workout.athlete_id && (
+                      <span className="bg-amber-100 text-amber-800 border border-amber-200 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest">
+                        VIP / Privado
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase">
+                    {new Date(workout.date + 'T12:00:00').toLocaleDateString('es-VE', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                </div>
 
-          {/* Bloque 2: Acondicionamiento Metabólico (Metcon) */}
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <div className="flex items-center gap-2 mb-3 border-b border-gray-100 pb-3">
-              <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
-                <FontAwesomeIcon icon={faFire} className="text-red-500 w-3.5 h-3.5" />
-              </div>
-              <h3 className="text-sm font-extrabold text-black uppercase tracking-wide">B. Metcon (AMRAP)</h3>
-              <span className="ml-auto text-[10px] font-bold bg-red-50 text-red-600 px-2 py-1 rounded-md tracking-widest">
-                12 MIN
-              </span>
-            </div>
-            <ul className="text-xs text-gray-500 leading-relaxed font-medium space-y-2.5 pl-1">
-              <li className="flex items-start gap-2">
-                <span className="font-extrabold text-black w-5 text-right">15</span>
-                <span>Wall Balls (20/14 lb)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="font-extrabold text-black w-5 text-right">10</span>
-                <span>Power Cleans (135/95 lb)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="font-extrabold text-black w-5 text-right">5</span>
-                <span>Bar Muscle-ups</span>
-              </li>
-            </ul>
-            
-            {/* Acción para registrar resultados */}
-            <div className="mt-5 pt-4 border-t border-gray-50">
-              <button className="w-full bg-black text-white text-xs font-bold py-3.5 rounded-xl hover:bg-gray-800 transition flex items-center justify-center gap-2">
-                <FontAwesomeIcon icon={faStopwatch} className="w-3.5 h-3.5" />
-                REGISTRAR RESULTADO
-              </button>
-            </div>
-          </div>
+                {workout.title && (
+                  <h3 className="text-lg font-black text-black mb-3 px-1">{workout.title}</h3>
+                )}
 
+                <div className="space-y-4">
+                  {/* Bloque Warm-up */}
+                  {workout.warmup && (
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                      <div className="flex items-center gap-2 mb-3 border-b border-gray-100 pb-3">
+                        <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center">
+                          <FontAwesomeIcon icon={faHeartPulse} className="text-amber-500 w-3.5 h-3.5" />
+                        </div>
+                        <h3 className="text-sm font-extrabold text-black uppercase tracking-wide">A. Warm-up</h3>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed font-medium pl-1 whitespace-pre-line">
+                        {workout.warmup}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Bloque Fuerza */}
+                  {workout.strength && (
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                      <div className="flex items-center gap-2 mb-3 border-b border-gray-100 pb-3">
+                        <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center">
+                          <FontAwesomeIcon icon={faDumbbell} className="text-blue-500 w-3.5 h-3.5" />
+                        </div>
+                        <h3 className="text-sm font-extrabold text-black uppercase tracking-wide">B. Fuerza / Skill</h3>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed font-medium pl-1 whitespace-pre-line">
+                        {workout.strength}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Bloque WOD */}
+                  {workout.wod && (
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                      <div className="flex items-center gap-2 mb-3 border-b border-gray-100 pb-3">
+                        <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+                          <FontAwesomeIcon icon={faFire} className="text-red-500 w-3.5 h-3.5" />
+                        </div>
+                        <h3 className="text-sm font-extrabold text-black uppercase tracking-wide">C. WOD ({workout.type})</h3>
+                      </div>
+                      <p className="text-sm font-bold text-black leading-relaxed pl-1 whitespace-pre-line">
+                        {workout.wod}
+                      </p>
+                      
+                      {/* Botón de Registro de Resultados */}
+                      <div className="mt-5 pt-4 border-t border-gray-50">
+                        <button className="w-full bg-black text-white text-xs font-bold py-3.5 rounded-xl hover:bg-gray-800 transition flex items-center justify-center gap-2">
+                          <FontAwesomeIcon icon={faStopwatch} className="w-3.5 h-3.5" />
+                          REGISTRAR RESULTADO
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Bloque Cool-down */}
+                  {workout.cooldown && (
+                    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                      <div className="flex items-center gap-2 mb-3 border-b border-gray-100 pb-3">
+                        <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center">
+                          <FontAwesomeIcon icon={faSpa} className="text-teal-500 w-3.5 h-3.5" />
+                        </div>
+                        <h3 className="text-sm font-extrabold text-black uppercase tracking-wide">D. Cool-down</h3>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed font-medium pl-1 whitespace-pre-line">
+                        {workout.cooldown}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -187,7 +277,6 @@ export default function Home() {
           <FontAwesomeIcon icon={faHome} className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-bold">Inicio</span>
         </button>
-        {/* Nuevo botón PRs */}
         <button onClick={() => navigate('/client/prs')} className="flex flex-col items-center text-gray-400 hover:text-black transition-colors">
           <FontAwesomeIcon icon={faTrophy} className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-bold">PRs</span>

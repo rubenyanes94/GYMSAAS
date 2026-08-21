@@ -15,6 +15,7 @@ import ClientBookingFeed from './components/operations/ClientBookingFeed';
 import Profile from './pages/Profile';
 import FinancesDashboard from './components/finances/FinancesDashboard';
 import AthletesDashboard from './pages/AthletesDashboard';
+import WorkoutProgramming from './pages/WorkoutProgramming';
 
 // 3. Layout Principal del Panel
 import AdminLayout from './components/layouts/AdminLayout';
@@ -42,6 +43,7 @@ function App() {
         <Route path="/client/prs/:movementId" element={<MovementDetail />} />
         <Route path="/client/perfil" element={<Profile />} />
         <Route path="/client/menu" element={<Menu />} />
+        <Route path="/admin/programacion" element={<WorkoutProgramming />} />
 
         {/* ========================================== */}
         {/* RUTAS ADMINISTRATIVAS (Con Menú Lateral)   */}

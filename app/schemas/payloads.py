@@ -307,3 +307,36 @@ class TransactionCreate(BaseModel):
     amount: float
     method: str
     status: str = "COMPLETED"
+
+class WorkoutBase(BaseModel):
+    date: date
+    title: Optional[str] = None
+    category: str
+    athlete_id: Optional[UUID] = None
+    type: str
+    warmup: Optional[str] = None
+    strength: Optional[str] = None
+    wod: str
+    cooldown: Optional[str] = None
+    is_published: bool
+
+class WorkoutCreate(WorkoutBase):
+    pass
+
+class WorkoutUpdate(BaseModel):
+    date: Optional[date] = None
+    title: Optional[str] = None
+    category: Optional[str] = None
+    athlete_id: Optional[UUID] = None
+    type: Optional[str] = None
+    warmup: Optional[str] = None
+    strength: Optional[str] = None
+    wod: Optional[str] = None
+    cooldown: Optional[str] = None
+    is_published: Optional[bool] = None
+
+class WorkoutResponse(WorkoutBase):
+    id: UUID
+
+    class Config:
+        from_attributes = True

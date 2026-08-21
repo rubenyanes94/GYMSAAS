@@ -7,9 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from pydantic import BaseModel
+from typing import List
 
 from app.core.database import get_db
 from app.models.schema import User # Asegúrate de importar el modelo User si no lo tienes
+from app.models.schema import Workout
+from app.schemas.payloads import WorkoutCreate, WorkoutUpdate, WorkoutResponse
 from app.models.schema import ClassSession, Booking, UserSubscription
 from app.schemas.payloads import (
     ClassSessionCreate, 
@@ -569,3 +572,50 @@ async def book_client_to_class(
         "message": "Cliente procesado con éxito.",
         "status": booking_status
     }
+
+from app.core.database import get_db
+
+
+router = APIRouter(prefix="/workouts", tags=["Programación WOD"])
+
+@router.post("", response_model=WorkoutResponse, status_code=status.HTTP_201_CREATED)
+async def create_workout(workout_in: WorkoutCreate, db: AsyncSession = Depends(get_db)):
+    new_workout = Workout(**workout_in.model_dump())
+    db.add(new_workout)
+    await db.commit()
+    await db.refresh(new_workout)
+    return new_workout
+
+@router.get("", response_model=list[WorkoutResponse])
+async def get_workouts(db: AsyncSession = Depends(get_db)):
+    # Retorna todas las programaciones ordenadas por fecha descendente
+    query = select(Workout).order_by(Workout.date.desc())
+    result = await db.execute(query)
+    return result.scalars().all()
+
+@router.put("/{workout_id}", response_model=WorkoutResponse)
+async def update_workout(workout_id: UUID, workout_in: WorkoutUpdate, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Workout).filter(Workout.id == workout_id))
+    workout = result.scalars().first()
+    
+    if not workout:
+        raise HTTPException(status_code=404, detail="Programación no encontrada.")
+    
+    update_data = workout_in.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(workout, key, value)
+    
+    await db.commit()
+    await db.refresh(workout)
+    return workout
+
+@router.delete("/{workout_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workout(workout_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Workout).filter(Workout.id == workout_id))
+    workout = result.scalars().first()
+    
+    if not workout:
+        raise HTTPException(status_code=404, detail="Programación no encontrada.")
+    
+    await db.delete(workout)
+    await db.commit()

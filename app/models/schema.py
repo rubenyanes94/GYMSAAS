@@ -380,3 +380,19 @@ class Payment(Base):
     method = Column(String, nullable=False) # 'CASH', 'ZELLE', 'CARD', 'TRANSFER'
     status = Column(String, default="COMPLETED") # 'COMPLETED', 'PENDING'
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Workout(Base):
+    __tablename__ = "workouts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    date = Column(Date, nullable=False)
+    title = Column(String, nullable=True)
+    category = Column(String, nullable=False, default="CROSSFIT")
+    # Relación opcional: Si es null, es para todos. Si tiene UUID, es personalizado.
+    athlete_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    type = Column(String, nullable=False, default="FOR TIME")
+    warmup = Column(Text, nullable=True)
+    strength = Column(Text, nullable=True)
+    wod = Column(Text, nullable=False)
+    cooldown = Column(Text, nullable=True)
+    is_published = Column(Boolean, default=True)
