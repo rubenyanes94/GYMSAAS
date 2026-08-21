@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faUsers, faUserClock, faUserTimes, faCakeCandles, faSearch, 
   faDownload, faEnvelope, faCheckCircle, faExclamationTriangle, 
-  faTimesCircle, faRobot, faFileExcel, faFilePdf
+  faTimesCircle, faRobot, faFileExcel, faFilePdf, faIdCard
 } from '@fortawesome/free-solid-svg-icons';
 import { faWhatsapp } from '@fortawesome/free-brands-svg-icons';
 import api from '../services/api';
@@ -18,6 +18,7 @@ interface Athlete {
   roles: string[];
   is_active: boolean;
   plan_name?: string;
+  plan_price?: number; 
   plan_expiration?: string; 
 }
 
@@ -29,6 +30,7 @@ export default function AthletesDashboard() {
   // Estados para Modales
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [successModal, setSuccessModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
+  const [selectedPlanGroup, setSelectedPlanGroup] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAthletes = async () => {
@@ -66,6 +68,28 @@ export default function AthletesDashboard() {
     return stats;
   }, [athletes]);
 
+  // Agrupar atletas por plan y calcular Rentabilidad (MRR y ARR)
+  const planDistribution = useMemo(() => {
+    const distribution: Record<string, { subscribers: Athlete[], mrr: number }> = {};
+    
+    athletes.forEach(a => {
+      const planName = a.plan_name || 'Sin Plan';
+      if (!distribution[planName]) {
+        distribution[planName] = { subscribers: [], mrr: 0 };
+      }
+      
+      distribution[planName].subscribers.push(a);
+
+      const status = getAthleteStatus(a.plan_expiration);
+      // Solo suma al MRR si el usuario está activo o por vencer (no cuenta vencidos ni sin plan)
+      if (status.type === 'ACTIVE' || status.type === 'EXPIRING') {
+        distribution[planName].mrr += (Number(a.plan_price) || 0);
+      }
+    });
+    
+    return distribution;
+  }, [athletes]);
+
   const filteredAthletes = athletes.filter(a => 
     `${a.first_name} ${a.last_name} ${a.email}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -76,7 +100,6 @@ export default function AthletesDashboard() {
     setSuccessModal({ isOpen: true, message: '¡Correos copiados al portapapeles con éxito!' });
   };
 
-  // Generador de Link para WhatsApp (Dinámico según el estado comercial)
   const generateWhatsAppLink = (athlete: Athlete, statusType: string) => {
     const phone = athlete.phone ? athlete.phone.replace(/\D/g, '') : '';
     let message = '';
@@ -86,10 +109,8 @@ export default function AthletesDashboard() {
     } else if (statusType === 'EXPIRED') {
       message = `¡Hola ${athlete.first_name}! 🏋️‍♂️ Tu plan ha vencido. ¡Te extrañamos por el box! Escríbenos para renovar y volver a la acción. 🔥`;
     } else {
-      // Caso: SIN PLAN ('NONE')
       message = `¡Hola ${athlete.first_name}! 🏋️‍♂️ Vemos que estás en nuestra comunidad pero no tienes un plan activo. ¡Nos encantaría verte entrenar! ¿Te gustaría conocer nuestras opciones y promociones de este mes?`;
     }
-
     return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
   };
 
@@ -146,33 +167,45 @@ export default function AthletesDashboard() {
 
       {/* DASHBOARD ANALÍTICO & RECOMENDACIONES */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        {/* Gráfica de Retención (Tailwind) */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col">
-          <h2 className="text-lg font-extrabold text-black mb-1">Salud de la Base</h2>
-          <p className="text-xs font-bold text-gray-500 mb-6">Distribución actual de clientes.</p>
+        
+        {/* Distribución por Planes (Clickable) con MRR/ARR */}
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex flex-col max-h-[400px]">
+          <h2 className="text-lg font-extrabold text-black mb-1">Distribución de Planes</h2>
+          <p className="text-xs font-bold text-gray-500 mb-5">Suscriptores e ingresos recurrentes.</p>
           
-          <div className="flex-1 flex flex-col justify-center space-y-5">
-            <div>
-              <div className="flex justify-between text-sm font-bold text-black mb-1.5">
-                <span>Activos Saludables</span>
-                <span>{kpis.total > 0 ? Math.round((kpis.active / kpis.total) * 100) : 0}%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-green-500 h-3 rounded-full" style={{ width: `${(kpis.active / kpis.total) * 100}%` }}></div></div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm font-bold text-black mb-1.5">
-                <span>En Riesgo (Vencen Pronto)</span>
-                <span>{kpis.total > 0 ? Math.round((kpis.expiringSoon / kpis.total) * 100) : 0}%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-amber-500 h-3 rounded-full" style={{ width: `${(kpis.expiringSoon / kpis.total) * 100}%` }}></div></div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm font-bold text-black mb-1.5">
-                <span>Perdidos (Vencidos)</span>
-                <span>{kpis.total > 0 ? Math.round((kpis.expired / kpis.total) * 100) : 0}%</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-red-500 h-3 rounded-full" style={{ width: `${(kpis.expired / kpis.total) * 100}%` }}></div></div>
-            </div>
+          <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+            {Object.keys(planDistribution).length === 0 ? (
+              <p className="text-sm font-bold text-gray-400 text-center py-4">No hay datos de planes.</p>
+            ) : (
+              Object.entries(planDistribution)
+                .sort((a, b) => b[1].subscribers.length - a[1].subscribers.length) // Ordenar por popularidad
+                .map(([planName, data]) => (
+                <div 
+                  key={planName}
+                  onClick={() => setSelectedPlanGroup(planName)}
+                  className="group cursor-pointer p-3.5 rounded-xl border border-gray-100 hover:border-black hover:shadow-md transition-all flex justify-between items-center bg-gray-50 hover:bg-white"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${planName === 'Sin Plan' ? 'bg-gray-200 text-gray-500' : 'bg-black text-white'}`}>
+                      <FontAwesomeIcon icon={faIdCard} className="text-xs" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-gray-800 group-hover:text-black line-clamp-1">{planName}</span>
+                      
+                      {/* CÁLCULO DE RENTABILIDAD VISUAL */}
+                      {planName !== 'Sin Plan' && data.mrr > 0 && (
+                        <span className="text-[10px] font-extrabold text-green-600 mt-0.5 tracking-wide">
+                          MRR: ${data.mrr.toFixed(2)}/mes <span className="text-gray-400 font-medium ml-1">(ARR: ${(data.mrr * 12).toFixed(2)})</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 ml-2 shrink-0">
+                    <span className="text-lg font-black text-black">{data.subscribers.length}</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -188,7 +221,7 @@ export default function AthletesDashboard() {
             </div>
           </div>
           
-          <div className="space-y-3 overflow-y-auto max-h-[250px] pr-2">
+          <div className="space-y-3 overflow-y-auto max-h-[300px] pr-2">
             {(() => {
               const opportunities = athletes.filter(a => {
                 const type = getAthleteStatus(a.plan_expiration).type;
@@ -291,6 +324,48 @@ export default function AthletesDashboard() {
           </table>
         </div>
       </div>
+
+      {/* ================= MODALES ================= */}
+
+      {/* MODAL: LISTA DE CLIENTES POR PLAN */}
+      {selectedPlanGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center sticky top-0 bg-white">
+              <div>
+                <h2 className="text-xl font-extrabold text-black line-clamp-1">{selectedPlanGroup}</h2>
+                <p className="text-xs font-bold text-gray-500 mt-1">{planDistribution[selectedPlanGroup]?.subscribers.length || 0} suscriptores registrados</p>
+              </div>
+              <button onClick={() => setSelectedPlanGroup(null)} className="text-gray-400 hover:text-black transition-colors shrink-0 ml-4">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-3 custom-scrollbar">
+              {planDistribution[selectedPlanGroup]?.subscribers.map(a => {
+                const status = getAthleteStatus(a.plan_expiration);
+                return (
+                  <div key={a.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-xl hover:bg-gray-50 transition shadow-sm">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-extrabold text-black">{a.first_name} {a.last_name}</span>
+                      <span className="text-xs font-medium text-gray-500">{a.email}</span>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-1 rounded-md text-[9px] font-extrabold uppercase tracking-wide border ${status.color}`}>
+                      {status.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="p-5 border-t border-gray-100 bg-gray-50">
+              <button onClick={() => setSelectedPlanGroup(null)} className="w-full bg-black text-white font-extrabold py-3.5 px-4 rounded-xl hover:bg-gray-800 transition shadow-sm">
+                Cerrar Lista
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE EXPORTACIÓN */}
       {isExportModalOpen && (
