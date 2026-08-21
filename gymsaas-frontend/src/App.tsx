@@ -14,6 +14,7 @@ import CashRegister from './components/finances/CashRegister';
 import ClientBookingFeed from './components/operations/ClientBookingFeed';
 import Profile from './pages/Profile';
 import FinancesDashboard from './components/finances/FinancesDashboard';
+import AthletesDashboard from './pages/AthletesDashboard';
 
 // 3. Layout Principal del Panel
 import AdminLayout from './components/layouts/AdminLayout';
@@ -48,6 +49,7 @@ function App() {
         <Route path="/admin" element={<AdminLayout />}>
           {/* Ruta base: /admin */}
           <Route index element={<DashboardAdmin />} />
+          <Route element={<AthletesDashboard />} path="/admin/atletas" />
           
           {/* Ruta de Horarios y Reservas: /admin/horarios */}
           <Route path="horarios" element={<ScheduleCalendar />} />
